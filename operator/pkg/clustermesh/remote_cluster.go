@@ -58,6 +58,7 @@ func (rc *remoteCluster) Run(ctx context.Context, backend kvstore.BackendOperati
 	})
 
 	close(ready)
+	rc.mesh.globalServices.onClusterAdd(rc.name)
 	mgr.Run(ctx)
 }
 
@@ -71,8 +72,7 @@ func (rc *remoteCluster) Remove() {
 	// would break existing connections on restart.
 	rc.remoteServices.Drain()
 
-	// TODO
-	// rc.mesh.globalServices.onClusterDelete(rc.name)
+	rc.mesh.globalServices.onClusterDelete(rc.name)
 }
 
 func (rc *remoteCluster) ClusterConfigRequired() bool { return false }

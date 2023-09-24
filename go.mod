@@ -111,16 +111,19 @@ require (
 	google.golang.org/protobuf v1.31.0
 	gopkg.in/ini.v1 v1.67.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.28.0-rc.0
+	k8s.io/api v0.28.2
 	k8s.io/apiextensions-apiserver v0.28.0-rc.0
-	k8s.io/apimachinery v0.28.0-rc.0
-	k8s.io/client-go v0.28.0-rc.0
+	k8s.io/apimachinery v0.28.2
+	k8s.io/client-go v0.28.2
 	k8s.io/code-generator v0.28.0-rc.0
+	k8s.io/endpointslice v0.28.2
 	k8s.io/klog/v2 v2.100.1
+	k8s.io/kubernetes v1.28.2
 	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
 	sigs.k8s.io/controller-runtime v0.15.1
 	sigs.k8s.io/controller-tools v0.12.1
 	sigs.k8s.io/gateway-api v0.8.0-rc1
+	sigs.k8s.io/mcs-api v0.1.1-0.20230531192946-4231f56e5ff9
 	sigs.k8s.io/yaml v1.3.0
 )
 
@@ -174,7 +177,7 @@ require (
 	github.com/gobuffalo/flect v1.0.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
-	github.com/google/cel-go v0.16.0 // indirect
+	github.com/google/cel-go v0.16.1 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -248,7 +251,7 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apiserver v0.28.0-rc.0 // indirect
-	k8s.io/component-base v0.28.0-rc.0 // indirect
+	k8s.io/component-base v0.28.2 // indirect
 	k8s.io/gengo v0.0.0-20230306165830-ab3349d207d4 // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20230717233707-2695361300d9 // indirect

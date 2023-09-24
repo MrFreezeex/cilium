@@ -1,11 +1,26 @@
-package clustermesh
+/*
+Copyright 2019 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package util
 
 import (
 	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // TriggerTimeTracker is used to compute an EndpointsLastChangeTriggerTime
@@ -22,7 +37,7 @@ type TriggerTimeTracker struct {
 	// ServiceStates is a map, indexed by Service object key, storing the last
 	// known Service object state observed during the most recent call of the
 	// ComputeEndpointLastChangeTriggerTime function.
-	ServiceStates map[types.NamespacedName]ServiceState
+	ServiceStates map[ServiceKey]ServiceState
 
 	// mutex guarding the serviceStates map.
 	mutex sync.Mutex
@@ -31,18 +46,24 @@ type TriggerTimeTracker struct {
 // NewTriggerTimeTracker creates a new instance of the TriggerTimeTracker.
 func NewTriggerTimeTracker() *TriggerTimeTracker {
 	return &TriggerTimeTracker{
-		ServiceStates: make(map[types.NamespacedName]ServiceState),
+		ServiceStates: make(map[ServiceKey]ServiceState),
 	}
+}
+
+// ServiceKey is a key uniquely identifying a Service.
+type ServiceKey struct {
+	// namespace, name composing a namespaced name - an unique identifier of every Service.
+	Namespace, Name string
 }
 
 // ServiceState represents a state of an Service object that is known to this util.
 type ServiceState struct {
 	// lastServiceTriggerTime is a service trigger time observed most recently.
 	lastServiceTriggerTime time.Time
-	// lastClusterSyncedTimes is a map (Cluster name -> time) storing the remote
-	// cluster synced times that were observed during the most recent call of the
+	// lastPodTriggerTimes is a map (Pod name -> time) storing the pod trigger
+	// times that were observed during the most recent call of the
 	// ComputeEndpointLastChangeTriggerTime function.
-	lastClusterSyncedTime map[string]time.Time
+	lastPodTriggerTimes map[string]time.Time
 }
 
 // ComputeEndpointLastChangeTriggerTime updates the state of the Service/Endpoint
@@ -60,8 +81,9 @@ type ServiceState struct {
 // contract is fulfilled in the current implementation of the endpoint(slice)
 // controller.
 func (t *TriggerTimeTracker) ComputeEndpointLastChangeTriggerTime(
-	key types.NamespacedName, service *v1.Service, cluster string, clusterSyncedTime time.Time) time.Time {
+	namespace string, service *v1.Service, pods []*v1.Pod) time.Time {
 
+	key := ServiceKey{Namespace: namespace, Name: service.Name}
 	// As there won't be any concurrent calls for the same key, we need to guard
 	// access only to the serviceStates map.
 	t.mutex.Lock()
@@ -78,9 +100,15 @@ func (t *TriggerTimeTracker) ComputeEndpointLastChangeTriggerTime(
 	// minChangedTriggerTime is the min trigger time of all trigger times that
 	// have changed since the last sync.
 	var minChangedTriggerTime time.Time
-	if clusterSyncedTime.After(state.lastClusterSyncedTime[cluster]) {
-		// Remote endpoints last synced time has changed since the last sync, update minChangedTriggerTime.
-		minChangedTriggerTime = min(minChangedTriggerTime, clusterSyncedTime)
+	podTriggerTimes := make(map[string]time.Time)
+	for _, pod := range pods {
+		if podTriggerTime := getPodTriggerTime(pod); !podTriggerTime.IsZero() {
+			podTriggerTimes[pod.Name] = podTriggerTime
+			if podTriggerTime.After(state.lastPodTriggerTimes[pod.Name]) {
+				// Pod trigger time has changed since the last sync, update minChangedTriggerTime.
+				minChangedTriggerTime = min(minChangedTriggerTime, podTriggerTime)
+			}
+		}
 	}
 	serviceTriggerTime := getServiceTriggerTime(service)
 	if serviceTriggerTime.After(state.lastServiceTriggerTime) {
@@ -88,7 +116,7 @@ func (t *TriggerTimeTracker) ComputeEndpointLastChangeTriggerTime(
 		minChangedTriggerTime = min(minChangedTriggerTime, serviceTriggerTime)
 	}
 
-	state.lastClusterSyncedTime[cluster] = clusterSyncedTime
+	state.lastPodTriggerTimes = podTriggerTimes
 	state.lastServiceTriggerTime = serviceTriggerTime
 
 	if !wasKnown {
@@ -101,22 +129,20 @@ func (t *TriggerTimeTracker) ComputeEndpointLastChangeTriggerTime(
 }
 
 // DeleteService deletes service state stored in this util.
-func (t *TriggerTimeTracker) DeleteService(key types.NamespacedName) {
+func (t *TriggerTimeTracker) DeleteService(namespace, name string) {
+	key := ServiceKey{Namespace: namespace, Name: name}
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	delete(t.ServiceStates, key)
 }
 
-// DeleteiClusterService deletes service state stored in this util.
-func (t *TriggerTimeTracker) DeleteClusterService(key types.NamespacedName, cluster string) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	state, ok := t.ServiceStates[key]
-	if !ok {
-		return
+// getPodTriggerTime returns the time of the pod change (trigger) that resulted
+// or will result in the endpoint object change.
+func getPodTriggerTime(pod *v1.Pod) (triggerTime time.Time) {
+	if readyCondition := getPodReadyCondition(&pod.Status); readyCondition != nil {
+		triggerTime = readyCondition.LastTransitionTime.Time
 	}
-	delete(state.lastClusterSyncedTime, cluster)
+	return triggerTime
 }
 
 // getServiceTriggerTime returns the time of the service change (trigger) that

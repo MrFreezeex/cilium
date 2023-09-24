@@ -4,6 +4,8 @@
 package clustermesh
 
 import (
+	"time"
+
 	"github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
@@ -14,13 +16,18 @@ import (
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
+type clusterServiceWithTime struct {
+	svc        *serviceStore.ClusterService
+	lastSynced time.Time
+}
+
 type globalService struct {
-	clusterServices map[string]*serviceStore.ClusterService
+	clusterServices map[string]*clusterServiceWithTime
 }
 
 func newGlobalService() *globalService {
 	return &globalService{
-		clusterServices: map[string]*serviceStore.ClusterService{},
+		clusterServices: map[string]*clusterServiceWithTime{},
 	}
 }
 
@@ -64,6 +71,20 @@ func (c *globalServiceCache) getClusters(key string) []string {
 	return []string{}
 }
 
+// getService returns the service for a specific cluster
+func (c *globalServiceCache) getService(key string, cluster string) *clusterServiceWithTime {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	if globalSvc, ok := c.byName[key]; ok {
+		if svc, ok := globalSvc.clusterServices[cluster]; ok {
+			return svc
+		}
+	}
+
+	return nil
+}
+
 func (c *globalServiceCache) onUpdate(svc *serviceStore.ClusterService) {
 	scopedLog := log.WithFields(logrus.Fields{
 		logfields.ServiceName: svc.String(),
@@ -83,7 +104,7 @@ func (c *globalServiceCache) onUpdate(svc *serviceStore.ClusterService) {
 
 	scopedLog.Debugf("Updated service definition of remote cluster %#v", svc)
 
-	globalSvc.clusterServices[svc.Cluster] = svc
+	globalSvc.clusterServices[svc.Cluster] = &clusterServiceWithTime{svc: svc, lastSynced: time.Now()}
 	c.mutex.Unlock()
 }
 
@@ -128,10 +149,18 @@ func (c *globalServiceCache) onDelete(svc *serviceStore.ClusterService) bool {
 	}
 }
 
+func (c *globalServiceCache) onClusterAdd(clusterName string) {
+	scopedLog := log.WithFields(logrus.Fields{logfields.ClusterName: clusterName})
+	scopedLog.Debugf("New cluster event")
+
+	// TODO call controller to add cluster
+}
+
 func (c *globalServiceCache) onClusterDelete(clusterName string) {
 	scopedLog := log.WithFields(logrus.Fields{logfields.ClusterName: clusterName})
 	scopedLog.Debugf("Cluster deletion event")
 
+	// TODO call controller to remove cluster
 	c.mutex.Lock()
 	for serviceName, globalService := range c.byName {
 		c.delete(globalService, clusterName, serviceName)
@@ -175,6 +204,7 @@ func (r *remoteServiceObserver) OnUpdate(key store.Key) {
 
 		mesh.globalServices.onUpdate(svc)
 
+		// TODO call onGlobalServiceUpdate
 		if merger := mesh.conf.ServiceMerger; merger != nil {
 			merger.MergeExternalServiceUpdate(svc, r.swg)
 		} else {
@@ -198,6 +228,7 @@ func (r *remoteServiceObserver) OnDelete(key store.NamedKey) {
 			return
 		}
 
+		// TODO call onGlobalServiceUpdate
 		if merger := mesh.conf.ServiceMerger; merger != nil {
 			merger.MergeExternalServiceDelete(svc, r.swg)
 		} else {

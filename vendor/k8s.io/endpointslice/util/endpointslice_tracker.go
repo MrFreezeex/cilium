@@ -1,15 +1,27 @@
-package clustermesh
+/*
+Copyright 2019 The Kubernetes Authors.
 
-// This file is adapted from the endpointslice_tracker.go in Kubernetes Upstream
-// used for the upstream endpointslice controller
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package util
 
 import (
 	"sync"
 
-	slim_discoveryv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/cache"
 )
 
 const (
@@ -29,19 +41,19 @@ type EndpointSliceTracker struct {
 	lock sync.Mutex
 	// generationsByService tracks the generations of EndpointSlices for each
 	// Service.
-	generationsByService map[string]GenerationsBySlice
+	generationsByService map[types.NamespacedName]GenerationsBySlice
 }
 
 // NewEndpointSliceTracker creates and initializes a new endpointSliceTracker.
 func NewEndpointSliceTracker() *EndpointSliceTracker {
 	return &EndpointSliceTracker{
-		generationsByService: map[string]GenerationsBySlice{},
+		generationsByService: map[types.NamespacedName]GenerationsBySlice{},
 	}
 }
 
 // Has returns true if the endpointSliceTracker has a generation for the
 // provided EndpointSlice.
-func (est *EndpointSliceTracker) Has(endpointSlice *slim_discoveryv1.EndpointSlice) bool {
+func (est *EndpointSliceTracker) Has(endpointSlice *discovery.EndpointSlice) bool {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
@@ -56,7 +68,7 @@ func (est *EndpointSliceTracker) Has(endpointSlice *slim_discoveryv1.EndpointSli
 // ShouldSync returns true if this endpointSliceTracker does not have a
 // generation for the provided EndpointSlice or it is greater than the
 // generation of the tracked EndpointSlice.
-func (est *EndpointSliceTracker) ShouldSync(endpointSlice *slim_discoveryv1.EndpointSlice) bool {
+func (est *EndpointSliceTracker) ShouldSync(endpointSlice *discovery.EndpointSlice) bool {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
@@ -74,15 +86,12 @@ func (est *EndpointSliceTracker) ShouldSync(endpointSlice *slim_discoveryv1.Endp
 //  2. The tracker is expecting one or more of the provided EndpointSlices to be
 //     deleted. (EndpointSlices that have already been marked for deletion are ignored here.)
 //  3. The tracker is tracking EndpointSlices that have not been provided.
-func (est *EndpointSliceTracker) StaleSlices(service *v1.Service, endpointSlices []*slim_discoveryv1.EndpointSlice) bool {
+func (est *EndpointSliceTracker) StaleSlices(service *v1.Service, endpointSlices []*discovery.EndpointSlice) bool {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
-	key, err := cache.MetaNamespaceKeyFunc(service)
-	if err != nil {
-		return false
-	}
-	gfs, ok := est.generationsByService[key]
+	nn := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
+	gfs, ok := est.generationsByService[nn]
 	if !ok {
 		return false
 	}
@@ -108,7 +117,7 @@ func (est *EndpointSliceTracker) StaleSlices(service *v1.Service, endpointSlices
 
 // Update adds or updates the generation in this endpointSliceTracker for the
 // provided EndpointSlice.
-func (est *EndpointSliceTracker) Update(endpointSlice *slim_discoveryv1.EndpointSlice) {
+func (est *EndpointSliceTracker) Update(endpointSlice *discovery.EndpointSlice) {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
@@ -116,22 +125,23 @@ func (est *EndpointSliceTracker) Update(endpointSlice *slim_discoveryv1.Endpoint
 
 	if !ok {
 		gfs = GenerationsBySlice{}
-		est.generationsByService[getServiceKey(endpointSlice)] = gfs
+		est.generationsByService[getServiceNN(endpointSlice)] = gfs
 	}
 	gfs[endpointSlice.UID] = endpointSlice.Generation
 }
 
 // DeleteService removes the set of generations tracked for the Service.
-func (est *EndpointSliceTracker) DeleteService(key string) {
+func (est *EndpointSliceTracker) DeleteService(namespace, name string) {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
-	delete(est.generationsByService, key)
+	serviceNN := types.NamespacedName{Name: name, Namespace: namespace}
+	delete(est.generationsByService, serviceNN)
 }
 
 // ExpectDeletion sets the generation to deletionExpected in this
 // endpointSliceTracker for the provided EndpointSlice.
-func (est *EndpointSliceTracker) ExpectDeletion(endpointSlice *slim_discoveryv1.EndpointSlice) {
+func (est *EndpointSliceTracker) ExpectDeletion(endpointSlice *discovery.EndpointSlice) {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
@@ -139,7 +149,7 @@ func (est *EndpointSliceTracker) ExpectDeletion(endpointSlice *slim_discoveryv1.
 
 	if !ok {
 		gfs = GenerationsBySlice{}
-		est.generationsByService[getServiceKey(endpointSlice)] = gfs
+		est.generationsByService[getServiceNN(endpointSlice)] = gfs
 	}
 	gfs[endpointSlice.UID] = deletionExpected
 }
@@ -147,7 +157,7 @@ func (est *EndpointSliceTracker) ExpectDeletion(endpointSlice *slim_discoveryv1.
 // HandleDeletion removes the generation in this endpointSliceTracker for the
 // provided EndpointSlice. This returns true if the tracker expected this
 // EndpointSlice to be deleted and false if not.
-func (est *EndpointSliceTracker) HandleDeletion(endpointSlice *slim_discoveryv1.EndpointSlice) bool {
+func (est *EndpointSliceTracker) HandleDeletion(endpointSlice *discovery.EndpointSlice) bool {
 	est.lock.Lock()
 	defer est.lock.Unlock()
 
@@ -167,18 +177,15 @@ func (est *EndpointSliceTracker) HandleDeletion(endpointSlice *slim_discoveryv1.
 // GenerationsForSliceUnsafe returns the generations for the Service
 // corresponding to the provided EndpointSlice, and a bool to indicate if it
 // exists. A lock must be applied before calling this function.
-func (est *EndpointSliceTracker) GenerationsForSliceUnsafe(endpointSlice *slim_discoveryv1.EndpointSlice) (GenerationsBySlice, bool) {
-	key := getServiceKey(endpointSlice)
-	generations, ok := est.generationsByService[key]
+func (est *EndpointSliceTracker) GenerationsForSliceUnsafe(endpointSlice *discovery.EndpointSlice) (GenerationsBySlice, bool) {
+	serviceNN := getServiceNN(endpointSlice)
+	generations, ok := est.generationsByService[serviceNN]
 	return generations, ok
 }
 
 // getServiceNN returns a namespaced name for the Service corresponding to the
 // provided EndpointSlice.
-func getServiceKey(endpointSlice *slim_discoveryv1.EndpointSlice) string {
-	key := endpointSlice.Labels[slim_discoveryv1.LabelServiceName]
-	if endpointSlice.Namespace != "" {
-		key += "/" + endpointSlice.Namespace
-	}
-	return key
+func getServiceNN(endpointSlice *discovery.EndpointSlice) types.NamespacedName {
+	serviceName, _ := endpointSlice.Labels[discovery.LabelServiceName]
+	return types.NamespacedName{Name: serviceName, Namespace: endpointSlice.Namespace}
 }
