@@ -19,13 +19,6 @@ type Metrics struct {
 	EndpointsRemovedPerSync metric.Vec[metric.Observer]
 	// EndpointsDesired tracks the total number of desired endpoints.
 	EndpointsDesired metric.Vec[metric.Gauge]
-	// NumEndpointSlices tracks the number of EndpointSlices in a cluster.
-	NumEndpointSlices metric.Vec[metric.Gauge]
-	// DesiredEndpointSlices tracks the number of EndpointSlices that would
-	// exist with perfect endpoint allocation.
-	DesiredEndpointSlices metric.Vec[metric.Gauge]
-	// EndpointSliceChanges tracks the number of changes to Endpoint Slices.
-	EndpointSliceChanges metric.Vec[metric.Counter]
 	// EndpointSlicesChangedPerSync observes the number of EndpointSlices
 	// changed per sync.
 	EndpointSlicesChangedPerSync metric.Vec[metric.Observer]
@@ -80,34 +73,6 @@ func NewMetrics() Metrics {
 				Help:       "Number of endpoints desired",
 			},
 			[]string{},
-		),
-		NumEndpointSlices: metric.NewGaugeVec(
-			metric.GaugeOpts{
-				ConfigName: metrics.Namespace + "_" + subsystem + "_num_endpoint_slices",
-				Subsystem:  subsystem,
-				Name:       "num_endpoint_slices",
-				Help:       "Number of EndpointSlices",
-			},
-			[]string{},
-		),
-		DesiredEndpointSlices: metric.NewGaugeVec(
-			metric.GaugeOpts{
-				ConfigName: metrics.Namespace + "_" + subsystem + "_desired_endpoint_slices",
-				Subsystem:  subsystem,
-				Name:       "desired_endpoint_slices",
-				Help:       "Number of EndpointSlices that would exist with perfect endpoint allocation",
-			},
-			[]string{},
-		),
-
-		EndpointSliceChanges: metric.NewCounterVec(
-			metric.CounterOpts{
-				ConfigName: metrics.Namespace + "_" + subsystem + "_changes",
-				Subsystem:  subsystem,
-				Name:       "changes",
-				Help:       "Number of EndpointSlice changes",
-			},
-			[]string{"operation"},
 		),
 
 		// EndpointSlicesChangedPerSync observes the number of EndpointSlices
