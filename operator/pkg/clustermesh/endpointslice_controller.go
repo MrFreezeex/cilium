@@ -218,10 +218,10 @@ func (c *EndpointSliceController) onClusterDelete(cluster string) {
 	delete(c.endpointSliceTrackers, cluster)
 }
 
-func (c *EndpointSliceController) onGlobalServiceUpdate(globalSvc *serviceStore.ClusterService) {
+func (c *EndpointSliceController) onClusterServiceUpdate(clusterSvc *serviceStore.ClusterService) {
 	c.queue.AddAfter(serviceClusterSyncEvent{
-		key:     types.NamespacedName{Name: globalSvc.Name, Namespace: globalSvc.Namespace},
-		cluster: globalSvc.Cluster,
+		key:     types.NamespacedName{Name: clusterSvc.Name, Namespace: clusterSvc.Namespace},
+		cluster: clusterSvc.Cluster,
 	}, c.endpointUpdatesBatchPeriod)
 
 }
@@ -489,15 +489,15 @@ func (c *EndpointSliceController) handleServiceSyncEvent(key types.NamespacedNam
 			return endpointslicepkg.NewStaleInformerCache("EndpointSlice informer cache is out of date")
 		}
 
-		globalSvc := c.cm.globalServices.getService(key.String(), cluster)
+		clusterSvc := c.cm.globalServices.getService(key.String(), cluster)
 
 		// We call ComputeEndpointLastChangeTriggerTime here to make sure that the
 		// state of the trigger time tracker gets updated even if the sync turns out
 		// to be no-op and we don't update the EndpointSlice objects.
 		lastChangeTriggerTime := c.triggerTimeTracker.
-			ComputeEndpointLastChangeTriggerTime(key, service, cluster, globalSvc.lastSynced)
+			ComputeEndpointLastChangeTriggerTime(key, service, cluster, clusterSvc.lastSynced)
 
-		err = c.reconciler.Reconcile(service, globalSvc.svc, endpointSlices, lastChangeTriggerTime, endpointSliceTracker)
+		err = c.reconciler.Reconcile(service, clusterSvc.svc, endpointSlices, lastChangeTriggerTime, endpointSliceTracker)
 		if err != nil {
 			return err
 		}

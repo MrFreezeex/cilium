@@ -40,7 +40,7 @@ type endpointMeta struct {
 // compares them with the endpoints already present in any existing endpoint
 // slices for the given service. It creates, updates, or deletes endpoint slices
 // to ensure the desired set of pods are represented by endpoint slices.
-func (r *EndpointSliceReconciler) Reconcile(service *corev1.Service, globalSvc *serviceStore.ClusterService, existingSlices []*discovery.EndpointSlice, triggerTime time.Time, endpointSliceTracker *endpointsliceutil.EndpointSliceTracker) error {
+func (r *EndpointSliceReconciler) Reconcile(service *corev1.Service, clusterSvc *serviceStore.ClusterService, existingSlices []*discovery.EndpointSlice, triggerTime time.Time, endpointSliceTracker *endpointsliceutil.EndpointSliceTracker) error {
 	slicesToDelete := []*discovery.EndpointSlice{}                                    // slices that are no longer  matching any address the service has
 	errs := []error{}                                                                 // all errors generated in the process of reconciling
 	slicesByAddressType := make(map[discovery.AddressType][]*discovery.EndpointSlice) // slices by address type
@@ -70,7 +70,7 @@ func (r *EndpointSliceReconciler) Reconcile(service *corev1.Service, globalSvc *
 	// reconcile for existing.
 	for addressType := range serviceSupportedAddressesTypes {
 		existingSlices := slicesByAddressType[addressType]
-		err := r.reconcileByAddressType(service, globalSvc, existingSlices, triggerTime, addressType, endpointSliceTracker)
+		err := r.reconcileByAddressType(service, clusterSvc, existingSlices, triggerTime, addressType, endpointSliceTracker)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -95,7 +95,7 @@ func (r *EndpointSliceReconciler) Reconcile(service *corev1.Service, globalSvc *
 // compares them with the endpoints already present in any existing endpoint
 // slices (by address type) for the given service. It creates, updates, or deletes endpoint slices
 // to ensure the desired set of pods are represented by endpoint slices.
-func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service, globalSvc *serviceStore.ClusterService, existingSlices []*discovery.EndpointSlice, triggerTime time.Time, addressType discovery.AddressType, endpointSliceTracker *endpointsliceutil.EndpointSliceTracker) error {
+func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service, clusterSvc *serviceStore.ClusterService, existingSlices []*discovery.EndpointSlice, triggerTime time.Time, addressType discovery.AddressType, endpointSliceTracker *endpointsliceutil.EndpointSliceTracker) error {
 	errs := []error{}
 
 	slicesToCreate := []*discovery.EndpointSlice{}
@@ -117,7 +117,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service
 	desiredMetaByPortMap := map[endpointsliceutil.PortMapKey]*endpointMeta{}
 	desiredEndpointsByPortMap := map[endpointsliceutil.PortMapKey]endpointsliceutil.EndpointSet{}
 
-	endpointPorts := getEndpointPorts(service, globalSvc)
+	endpointPorts := getEndpointPorts(service, clusterSvc)
 	epHash := endpointsliceutil.NewPortMapKey(endpointPorts)
 	if _, ok := desiredEndpointsByPortMap[epHash]; !ok {
 		desiredEndpointsByPortMap[epHash] = endpointsliceutil.EndpointSet{}
@@ -138,7 +138,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service
 	for portMap, desiredEndpoints := range desiredEndpointsByPortMap {
 		numEndpoints := len(desiredEndpoints)
 		pmSlicesToCreate, pmSlicesToUpdate, pmSlicesToDelete, added, removed := r.reconcileByPortMapping(
-			service, existingSlicesByPortMap[portMap], desiredEndpoints, desiredMetaByPortMap[portMap], globalSvc.Cluster)
+			service, existingSlicesByPortMap[portMap], desiredEndpoints, desiredMetaByPortMap[portMap], clusterSvc.Cluster)
 
 		totalAdded += added
 		totalRemoved += removed
@@ -164,7 +164,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service
 	// When no endpoint slices would usually exist, we need to add a placeholder.
 	if len(existingSlices) == len(slicesToDelete) && len(slicesToCreate) < 1 {
 		// Check for existing placeholder slice outside of the core control flow
-		placeholderSlice := newEndpointSlice(service, &endpointMeta{ports: []discovery.EndpointPort{}, addressType: addressType}, globalSvc.Cluster, r.controllerName)
+		placeholderSlice := newEndpointSlice(service, &endpointMeta{ports: []discovery.EndpointPort{}, addressType: addressType}, clusterSvc.Cluster, r.controllerName)
 		if len(slicesToDelete) == 1 && placeholderSliceCompare.DeepEqual(slicesToDelete[0], placeholderSlice) {
 			// We are about to unnecessarily delete/recreate the placeholder, remove it now.
 			slicesToDelete = slicesToDelete[:0]

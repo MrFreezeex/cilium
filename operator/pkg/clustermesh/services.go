@@ -181,7 +181,7 @@ func (r *remoteServiceObserver) OnUpdate(key store.Key) {
 		}
 
 		mesh.globalServices.onUpdate(svc)
-		mesh.EndpointSliceController.onGlobalServiceUpdate(svc)
+		mesh.EndpointSliceController.onClusterServiceUpdate(svc)
 	} else {
 		log.Warningf("Received unexpected remote service update object %+v", key)
 	}
@@ -200,7 +200,7 @@ func (r *remoteServiceObserver) OnDelete(key store.NamedKey) {
 			return
 		}
 
-		mesh.EndpointSliceController.onGlobalServiceUpdate(svc)
+		mesh.EndpointSliceController.onClusterServiceUpdate(svc)
 	} else {
 		log.Warningf("Received unexpected remote service delete object %+v", key)
 	}

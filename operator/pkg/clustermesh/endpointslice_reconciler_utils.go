@@ -20,7 +20,7 @@ import (
 
 // getEndpointPorts returns a list of EndpointPorts generated from a Service
 // and a Global Service.
-func getEndpointPorts(service *v1.Service, globalSvc *serviceStore.ClusterService) []discovery.EndpointPort {
+func getEndpointPorts(service *v1.Service, clusterSvc *serviceStore.ClusterService) []discovery.EndpointPort {
 	endpointPorts := []discovery.EndpointPort{}
 
 	// Allow headless service not to have ports.
@@ -33,7 +33,7 @@ func getEndpointPorts(service *v1.Service, globalSvc *serviceStore.ClusterServic
 
 		portName := servicePort.Name
 		portProto := servicePort.Protocol
-		for _, portConfiguration := range globalSvc.Backends {
+		for _, portConfiguration := range clusterSvc.Backends {
 			portNum, err := findPort(portConfiguration, servicePort)
 			if err != nil {
 				log.Info("Failed to find port for service", "service", klog.KObj(service), "err", err)
