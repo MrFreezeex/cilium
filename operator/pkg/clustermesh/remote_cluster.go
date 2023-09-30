@@ -66,12 +66,11 @@ func (rc *remoteCluster) Stop() {
 }
 
 func (rc *remoteCluster) Remove() {
+	rc.mesh.EndpointSliceController.onClusterDelete(rc.name)
 	// Draining shall occur only when the configuration for the remote cluster
 	// is removed, and not in case the operator is shutting down, otherwise we
 	// would break existing connections on restart.
 	rc.remoteServices.Drain()
-
-	rc.mesh.EndpointSliceController.onClusterDelete(rc.name)
 }
 
 func (rc *remoteCluster) ClusterConfigRequired() bool { return false }

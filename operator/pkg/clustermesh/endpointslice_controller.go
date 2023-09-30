@@ -213,8 +213,8 @@ func (c *EndpointSliceController) onClusterAdd(cluster string) {
 }
 
 func (c *EndpointSliceController) onClusterDelete(cluster string) {
-	// We can just remove the endpointslice trackers here and we will be notified
-	// after that of each services updates deleted
+	// We can just remove the endpointslice tracker here and we will be notified
+	// progressively by the service cache of each services updates
 	delete(c.endpointSliceTrackers, cluster)
 }
 
