@@ -138,7 +138,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service
 	for portMap, desiredEndpoints := range desiredEndpointsByPortMap {
 		numEndpoints := len(desiredEndpoints)
 		pmSlicesToCreate, pmSlicesToUpdate, pmSlicesToDelete, added, removed := r.reconcileByPortMapping(
-			service, existingSlicesByPortMap[portMap], desiredEndpoints, desiredMetaByPortMap[portMap])
+			service, existingSlicesByPortMap[portMap], desiredEndpoints, desiredMetaByPortMap[portMap], globalSvc.Cluster)
 
 		totalAdded += added
 		totalRemoved += removed
@@ -164,7 +164,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(service *corev1.Service
 	// When no endpoint slices would usually exist, we need to add a placeholder.
 	if len(existingSlices) == len(slicesToDelete) && len(slicesToCreate) < 1 {
 		// Check for existing placeholder slice outside of the core control flow
-		placeholderSlice := newEndpointSlice(service, &endpointMeta{ports: []discovery.EndpointPort{}, addressType: addressType}, r.controllerName)
+		placeholderSlice := newEndpointSlice(service, &endpointMeta{ports: []discovery.EndpointPort{}, addressType: addressType}, globalSvc.Cluster, r.controllerName)
 		if len(slicesToDelete) == 1 && placeholderSliceCompare.DeepEqual(slicesToDelete[0], placeholderSlice) {
 			// We are about to unnecessarily delete/recreate the placeholder, remove it now.
 			slicesToDelete = slicesToDelete[:0]
@@ -319,6 +319,7 @@ func (r *EndpointSliceReconciler) reconcileByPortMapping(
 	existingSlices []*discovery.EndpointSlice,
 	desiredSet endpointsliceutil.EndpointSet,
 	endpointMeta *endpointMeta,
+	clusterName string,
 ) ([]*discovery.EndpointSlice, []*discovery.EndpointSlice, []*discovery.EndpointSlice, int, int) {
 	slicesByName := map[string]*discovery.EndpointSlice{}
 	sliceNamesUnchanged := sets.New[string]()
@@ -349,7 +350,7 @@ func (r *EndpointSliceReconciler) reconcileByPortMapping(
 		}
 
 		// generate the slice labels and check if parent labels have changed
-		labels, labelsChanged := setEndpointSliceLabels(existingSlice, service, r.controllerName)
+		labels, labelsChanged := setEndpointSliceLabels(existingSlice, service, clusterName, r.controllerName)
 
 		// If an endpoint was updated or removed, mark for update or delete
 		if endpointUpdated || len(existingSlice.Endpoints) != len(newEndpoints) {
@@ -422,7 +423,7 @@ func (r *EndpointSliceReconciler) reconcileByPortMapping(
 
 		// If we didn't find a sliceToFill, generate a new empty one.
 		if sliceToFill == nil {
-			sliceToFill = newEndpointSlice(service, endpointMeta, r.controllerName)
+			sliceToFill = newEndpointSlice(service, endpointMeta, clusterName, r.controllerName)
 		} else {
 			// deep copy required to modify this slice.
 			sliceToFill = sliceToFill.DeepCopy()

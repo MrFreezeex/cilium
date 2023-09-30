@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
+	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
 // getEndpointPorts returns a list of EndpointPorts generated from a Service
@@ -54,7 +55,7 @@ func getEndpointPorts(service *v1.Service, globalSvc *serviceStore.ClusterServic
 
 // newEndpointSlice returns an EndpointSlice generated from a service and
 // endpointMeta.
-func newEndpointSlice(service *v1.Service, endpointMeta *endpointMeta, controllerName string) *discovery.EndpointSlice {
+func newEndpointSlice(service *v1.Service, endpointMeta *endpointMeta, clusterName string, controllerName string) *discovery.EndpointSlice {
 	gvk := schema.GroupVersionKind{Version: "v1", Kind: "Service"}
 	ownerRef := metav1.NewControllerRef(service, gvk)
 	epSlice := &discovery.EndpointSlice{
@@ -69,7 +70,7 @@ func newEndpointSlice(service *v1.Service, endpointMeta *endpointMeta, controlle
 		Endpoints:   []discovery.Endpoint{},
 	}
 	// add parent service labels
-	epSlice.Labels, _ = setEndpointSliceLabels(epSlice, service, controllerName)
+	epSlice.Labels, _ = setEndpointSliceLabels(epSlice, service, clusterName, controllerName)
 
 	return epSlice
 }
@@ -143,7 +144,7 @@ func ServiceControllerKey(endpointSlice *discovery.EndpointSlice) (string, error
 // setEndpointSliceLabels returns a map with the new endpoint slices labels and true if there was an update.
 // Slices labels must be equivalent to the Service labels except for the reserved IsHeadlessService, LabelServiceName and LabelManagedBy labels
 // Changes to IsHeadlessService, LabelServiceName and LabelManagedBy labels on the Service do not result in updates to EndpointSlice labels.
-func setEndpointSliceLabels(epSlice *discovery.EndpointSlice, service *v1.Service, controllerName string) (map[string]string, bool) {
+func setEndpointSliceLabels(epSlice *discovery.EndpointSlice, service *v1.Service, clusterName string, controllerName string) (map[string]string, bool) {
 	updated := false
 	epLabels := make(map[string]string)
 	svcLabels := make(map[string]string)
@@ -181,6 +182,7 @@ func setEndpointSliceLabels(epSlice *discovery.EndpointSlice, service *v1.Servic
 
 	// override endpoint slices reserved labels
 	svcLabels[discovery.LabelServiceName] = service.Name
+	svcLabels[mcsapiv1alpha1.LabelSourceCluster] = clusterName
 	svcLabels[discovery.LabelManagedBy] = controllerName
 
 	return svcLabels, updated
