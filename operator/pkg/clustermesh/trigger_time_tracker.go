@@ -88,6 +88,10 @@ func (t *TriggerTimeTracker) ComputeEndpointLastChangeTriggerTime(
 		minChangedTriggerTime = min(minChangedTriggerTime, serviceTriggerTime)
 	}
 
+	if state.lastClusterSyncedTime == nil {
+		state.lastClusterSyncedTime = make(map[string]time.Time)
+	}
+
 	state.lastClusterSyncedTime[cluster] = clusterSyncedTime
 	state.lastServiceTriggerTime = serviceTriggerTime
 
