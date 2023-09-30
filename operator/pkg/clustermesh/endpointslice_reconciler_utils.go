@@ -267,24 +267,6 @@ func getAddressTypesForService(service *v1.Service) sets.Set[discovery.AddressTy
 	return serviceSupportedAddresses
 }
 
-func unchangedSlices(existingSlices, slicesToUpdate, slicesToDelete []*discovery.EndpointSlice) []*discovery.EndpointSlice {
-	changedSliceNames := sets.New[string]()
-	for _, slice := range slicesToUpdate {
-		changedSliceNames.Insert(slice.Name)
-	}
-	for _, slice := range slicesToDelete {
-		changedSliceNames.Insert(slice.Name)
-	}
-	unchangedSlices := []*discovery.EndpointSlice{}
-	for _, slice := range existingSlices {
-		if !changedSliceNames.Has(slice.Name) {
-			unchangedSlices = append(unchangedSlices, slice)
-		}
-	}
-
-	return unchangedSlices
-}
-
 // isServiceIPSet aims to check if the service's ClusterIP is set or not
 // the objective is not to perform validation here
 // copied from k8s.io/kubernetes/pkg/apis/core/v1/helper
