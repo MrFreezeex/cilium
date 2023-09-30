@@ -11,7 +11,6 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -83,7 +82,7 @@ func NewEndpointSliceController(
 			&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
 		), "endpoint_slice_mesh"),
 		workerLoopPeriod: time.Second,
-		workers: workers,
+		workers:          workers,
 	}
 
 	c.serviceStore, c.serviceInformer = informer.NewInformer(
@@ -200,11 +199,10 @@ func NewEndpointSliceController(
 
 	c.endpointUpdatesBatchPeriod = endpointUpdatesBatchPeriod
 
-	// TODO
 	c.reconciler = NewEndpointSliceReconciler(
 		c.clientset,
 		c.maxEndpointsPerSlice,
-		c.endpointSliceTracker,
+		controllerName,
 	)
 
 	return c
@@ -262,7 +260,7 @@ type EndpointSliceController struct {
 
 	// maxEndpointsPerSlice references the maximum number of endpoints that
 	// should be added to an EndpointSlice
-	maxEndpointsPerSlice int32
+	maxEndpointsPerSlice int
 
 	// workerLoopPeriod is the time between worker runs. The workers
 	// process the queue of service changes.
@@ -439,7 +437,7 @@ func (c *EndpointSliceController) handleServiceSyncEvent(key types.NamespacedNam
 
 	if !exists {
 		c.triggerTimeTracker.DeleteService(key)
-		c.reconciler.DeleteService(key)
+		c.reconciler.DeleteService(key.Namespace, key.Name)
 		for _, endpointSliceTracker := range c.endpointSliceTrackers {
 			endpointSliceTracker.DeleteService(key.Namespace, key.Name)
 		}
@@ -499,8 +497,7 @@ func (c *EndpointSliceController) handleServiceSyncEvent(key types.NamespacedNam
 		lastChangeTriggerTime := c.triggerTimeTracker.
 			ComputeEndpointLastChangeTriggerTime(key, service, cluster, globalSvc.lastSynced)
 
-		// TODO
-		err = c.reconciler.Reconcile(service, globalSvc, endpointSlices, lastChangeTriggerTime)
+		err = c.reconciler.Reconcile(service, globalSvc.svc, endpointSlices, lastChangeTriggerTime, endpointSliceTracker)
 		if err != nil {
 			return err
 		}

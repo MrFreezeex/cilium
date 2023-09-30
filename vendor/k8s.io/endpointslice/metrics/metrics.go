@@ -102,7 +102,7 @@ var (
 			Name:      "endpointslices_changed_per_sync",
 			Help:      "Number of EndpointSlices changed on each Service sync",
 		},
-		[]string{"topology"}, // either "Auto" or "Disabled"
+		[]string{},
 	)
 
 	// EndpointSliceSyncs tracks the number of sync operations the controller

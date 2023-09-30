@@ -203,13 +203,7 @@ func (r *remoteServiceObserver) OnUpdate(key store.Key) {
 		}
 
 		mesh.globalServices.onUpdate(svc)
-
-		// TODO call onGlobalServiceUpdate
-		if merger := mesh.conf.ServiceMerger; merger != nil {
-			merger.MergeExternalServiceUpdate(svc, r.swg)
-		} else {
-			scopedLog.Debugf("Ignoring remote service update. Missing merger function")
-		}
+		mesh.EndpointSliceController.onGlobalServiceUpdate(svc)
 	} else {
 		log.Warningf("Received unexpected remote service update object %+v", key)
 	}
@@ -228,12 +222,7 @@ func (r *remoteServiceObserver) OnDelete(key store.NamedKey) {
 			return
 		}
 
-		// TODO call onGlobalServiceUpdate
-		if merger := mesh.conf.ServiceMerger; merger != nil {
-			merger.MergeExternalServiceDelete(svc, r.swg)
-		} else {
-			scopedLog.Debugf("Ignoring remote service delete. Missing merger function")
-		}
+		mesh.EndpointSliceController.onGlobalServiceUpdate(svc)
 	} else {
 		log.Warningf("Received unexpected remote service delete object %+v", key)
 	}
