@@ -142,8 +142,8 @@ func (cm *clusterMesh) newRemoteCluster(name string, status common.StatusFunc) c
 	rc.remoteServices = cm.storeFactory.NewWatchStore(
 		name,
 		func() store.Key { return new(serviceStore.ClusterService) },
-		&remoteServiceObserver{remoteCluster: rc, swg: rc.synced.services},
-		store.RWSWithOnSyncCallback(func(ctx context.Context) { rc.synced.services.Stop() }),
+		&remoteServiceObserver{remoteCluster: rc},
+		store.RWSWithOnSyncCallback(func(ctx context.Context) { close(rc.synced.services) }),
 	)
 
 	return rc

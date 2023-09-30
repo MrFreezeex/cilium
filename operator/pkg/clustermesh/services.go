@@ -149,25 +149,6 @@ func (c *globalServiceCache) onDelete(svc *serviceStore.ClusterService) bool {
 	}
 }
 
-func (c *globalServiceCache) onClusterAdd(clusterName string) {
-	scopedLog := log.WithFields(logrus.Fields{logfields.ClusterName: clusterName})
-	scopedLog.Debugf("New cluster event")
-
-	// TODO call controller to add cluster
-}
-
-func (c *globalServiceCache) onClusterDelete(clusterName string) {
-	scopedLog := log.WithFields(logrus.Fields{logfields.ClusterName: clusterName})
-	scopedLog.Debugf("Cluster deletion event")
-
-	// TODO call controller to remove cluster
-	c.mutex.Lock()
-	for serviceName, globalService := range c.byName {
-		c.delete(globalService, clusterName, serviceName)
-	}
-	c.mutex.Unlock()
-}
-
 // size returns the number of global services in the cache
 func (c *globalServiceCache) size() (num int) {
 	c.mutex.RLock()
@@ -178,9 +159,6 @@ func (c *globalServiceCache) size() (num int) {
 
 type remoteServiceObserver struct {
 	remoteCluster *remoteCluster
-	// swg provides a mechanism to known when the services were synchronized
-	// with the datapath.
-	swg *lock.StoppableWaitGroup
 }
 
 // OnUpdate is called when a service in a remote cluster is updated

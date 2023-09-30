@@ -12,7 +12,6 @@ import (
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
-	"github.com/cilium/cilium/pkg/lock"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
@@ -58,7 +57,7 @@ func (rc *remoteCluster) Run(ctx context.Context, backend kvstore.BackendOperati
 	})
 
 	close(ready)
-	rc.mesh.globalServices.onClusterAdd(rc.name)
+	rc.mesh.EndpointSliceController.onClusterAdd(rc.name)
 	mgr.Run(ctx)
 }
 
@@ -72,36 +71,28 @@ func (rc *remoteCluster) Remove() {
 	// would break existing connections on restart.
 	rc.remoteServices.Drain()
 
-	rc.mesh.globalServices.onClusterDelete(rc.name)
+	rc.mesh.EndpointSliceController.onClusterDelete(rc.name)
 }
 
 func (rc *remoteCluster) ClusterConfigRequired() bool { return false }
 
 type synced struct {
-	services *lock.StoppableWaitGroup
+	services chan struct{}
 	stopped  chan struct{}
 }
 
 func newSynced() synced {
-	// Use a StoppableWaitGroup for identities, instead of a plain channel to
-	// avoid having to deal with the possibility of a closed channel if already
-	// synced (as the callback is executed every time the etcd connection
-	// is restarted, differently from the other resource types).
-	idswg := lock.NewStoppableWaitGroup()
-	idswg.Add()
-	idswg.Stop()
-
 	return synced{
-		services: lock.NewStoppableWaitGroup(),
+		services: make(chan struct{}),
 		stopped:  make(chan struct{}),
 	}
 }
 
 // Services returns after that the initial list of shared services has been
-// received from the remote cluster, and synchronized with the BPF datapath,
-// the remote cluster is disconnected, or the given context is canceled.
+// received from the remote cluster, the remote cluster is disconnected,
+// or the given context is canceled.
 func (s *synced) Services(ctx context.Context) error {
-	return s.wait(ctx, s.services.WaitChannel())
+	return s.wait(ctx, s.services)
 }
 
 func (s *synced) wait(ctx context.Context, chs ...<-chan struct{}) error {
