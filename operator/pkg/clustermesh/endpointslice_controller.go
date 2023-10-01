@@ -372,7 +372,7 @@ func (c *EndpointSliceController) handleEvent(event interface{}) error {
 	return err
 }
 
-func (c *EndpointSliceController) getClustersForService(service v1.Service) ([]string, error) {
+func (c *EndpointSliceController) getClustersForService(service *v1.Service) ([]string, error) {
 	var clusters []string
 	for _, objFromCache := range c.endpointSliceStore.List() {
 		endpointSlice, ok := objFromCache.(*discoveryv1.EndpointSlice)
@@ -389,7 +389,7 @@ func (c *EndpointSliceController) getClustersForService(service v1.Service) ([]s
 	return clusters, nil
 }
 
-func (c *EndpointSliceController) listEndpointSlicesForServiceInCluster(service v1.Service, cluster string) ([]*discoveryv1.EndpointSlice, error) {
+func (c *EndpointSliceController) listEndpointSlicesForServiceInCluster(service *v1.Service, cluster string) ([]*discoveryv1.EndpointSlice, error) {
 	var endpointSlices []*discoveryv1.EndpointSlice
 	for _, objFromCache := range c.endpointSliceStore.List() {
 		endpointSlice, ok := objFromCache.(*discoveryv1.EndpointSlice)
@@ -406,7 +406,7 @@ func (c *EndpointSliceController) listEndpointSlicesForServiceInCluster(service 
 	return endpointSlices, nil
 }
 
-func (c *EndpointSliceController) deleteEndpointSlicesForServiceInCluster(service v1.Service, cluster string) error {
+func (c *EndpointSliceController) deleteEndpointSlicesForServiceInCluster(service *v1.Service, cluster string) error {
 	return c.clientset.DiscoveryV1().EndpointSlices(service.Namespace).DeleteCollection(
 		context.Background(),
 		metav1.DeleteOptions{},
@@ -454,12 +454,12 @@ func (c *EndpointSliceController) handleServiceSyncEvent(key types.NamespacedNam
 	if cluster != nil {
 		clusters[*cluster] = struct{}{}
 	} else {
-		// We get all the clusters refereced by this service in globalService cache
-		// and inside our cluster
+		// We retrieve all the clusters referenced by this service in
+		// globalService cache and inside our cluster
 		for _, cluster := range c.cm.globalServices.getClusters(key.String()) {
 			clusters[cluster] = struct{}{}
 		}
-		clustersForService, err := c.getClustersForService(*service)
+		clustersForService, err := c.getClustersForService(service)
 		if err != nil {
 			return err
 		}
@@ -474,11 +474,11 @@ func (c *EndpointSliceController) handleServiceSyncEvent(key types.NamespacedNam
 			// If there is no endpoint slice tracker we assume that the cluster
 			// have been deleted
 			c.triggerTimeTracker.DeleteClusterService(key, cluster)
-			c.deleteEndpointSlicesForServiceInCluster(*service, cluster)
+			c.deleteEndpointSlicesForServiceInCluster(service, cluster)
 			return nil
 		}
 
-		endpointSlices, err := c.listEndpointSlicesForServiceInCluster(*service, cluster)
+		endpointSlices, err := c.listEndpointSlicesForServiceInCluster(service, cluster)
 		if err != nil {
 			return err
 		}
