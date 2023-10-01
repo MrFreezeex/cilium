@@ -61,7 +61,7 @@ func newEndpointSlice(service *v1.Service, endpointMeta *endpointMeta, clusterNa
 	epSlice := &discovery.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:          map[string]string{},
-			GenerateName:    getEndpointSlicePrefix(service.Name),
+			GenerateName:    getEndpointSlicePrefix(service.Name, clusterName),
 			OwnerReferences: []metav1.OwnerReference{*ownerRef},
 			Namespace:       service.Namespace,
 		},
@@ -76,9 +76,15 @@ func newEndpointSlice(service *v1.Service, endpointMeta *endpointMeta, clusterNa
 }
 
 // getEndpointSlicePrefix returns a suitable prefix for an EndpointSlice name.
-func getEndpointSlicePrefix(serviceName string) string {
-	// use the dash (if the name isn't too long) to make the endpointslice name a bit prettier
-	prefix := fmt.Sprintf("%s-", serviceName)
+func getEndpointSlicePrefix(serviceName, clusterName string) string {
+	// try to use a prettier name (if the name isn't too long)
+	prefix := fmt.Sprintf("%s-%s-", serviceName, clusterName)
+	if len(apimachineryvalidation.NameIsDNSSubdomain(prefix, true)) != 0 {
+		prefix = fmt.Sprintf("%s-%s", serviceName, clusterName)
+	}
+	if len(apimachineryvalidation.NameIsDNSSubdomain(prefix, true)) != 0 {
+		prefix = fmt.Sprintf("%s-", serviceName)
+	}
 	if len(apimachineryvalidation.NameIsDNSSubdomain(prefix, true)) != 0 {
 		prefix = serviceName
 	}
