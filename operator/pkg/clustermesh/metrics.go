@@ -7,8 +7,8 @@ import (
 	"github.com/cilium/cilium/operator/metrics"
 	agentmetrics "github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
-	endpointslicemetrics "k8s.io/endpointslice/metrics"
 	k8smetrics "k8s.io/component-base/metrics"
+	endpointslicemetrics "k8s.io/endpointslice/metrics"
 )
 
 type Metrics struct {
@@ -118,8 +118,8 @@ func NewMetrics() Metrics {
 			[]string{"result"}, // either "success", "stale", or "error"
 		),
 
-		NumEndpointSlices: endpointslicemetrics.NumEndpointSlices,
+		NumEndpointSlices:     endpointslicemetrics.NumEndpointSlices,
 		DesiredEndpointSlices: endpointslicemetrics.DesiredEndpointSlices,
-		EndpointSliceChanges: endpointslicemetrics.EndpointSliceChanges,
+		EndpointSliceChanges:  endpointslicemetrics.EndpointSliceChanges,
 	}
 }

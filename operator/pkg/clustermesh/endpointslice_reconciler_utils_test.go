@@ -46,9 +46,9 @@ func TestNewEndpointSlice(t *testing.T) {
 			expectedSlice: &discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						discovery.LabelServiceName: service.Name,
+						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:   controllerName,
+						discovery.LabelManagedBy:          controllerName,
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -69,10 +69,10 @@ func TestNewEndpointSlice(t *testing.T) {
 			expectedSlice: &discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						discovery.LabelServiceName: service.Name,
+						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:   controllerName,
-						"foo":                      "bar",
+						discovery.LabelManagedBy:          controllerName,
+						"foo":                             "bar",
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -94,11 +94,11 @@ func TestNewEndpointSlice(t *testing.T) {
 			expectedSlice: &discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						discovery.LabelServiceName: service.Name,
+						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:   controllerName,
-						v1.IsHeadlessService:       "",
-						"foo":                      "bar",
+						discovery.LabelManagedBy:          controllerName,
+						v1.IsHeadlessService:              "",
+						"foo":                             "bar",
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -119,11 +119,11 @@ func TestNewEndpointSlice(t *testing.T) {
 			expectedSlice: &discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						discovery.LabelServiceName: service.Name,
+						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:   controllerName,
-						"foo":                      "bar",
-						"foo2":                     "bar2",
+						discovery.LabelManagedBy:          controllerName,
+						"foo":                             "bar",
+						"foo2":                            "bar2",
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -138,10 +138,10 @@ func TestNewEndpointSlice(t *testing.T) {
 			name: "Evil service hijacking endpoint slices labels",
 			updateSvc: func(svc v1.Service) v1.Service {
 				labels := map[string]string{
-					discovery.LabelServiceName: "bad",
+					discovery.LabelServiceName:        "bad",
 					mcsapiv1alpha1.LabelSourceCluster: clusterName,
-					discovery.LabelManagedBy:   "actor",
-					"foo":                      "bar",
+					discovery.LabelManagedBy:          "actor",
+					"foo":                             "bar",
 				}
 				svc.Labels = labels
 				return svc
@@ -149,10 +149,10 @@ func TestNewEndpointSlice(t *testing.T) {
 			expectedSlice: &discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						discovery.LabelServiceName: service.Name,
+						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:   controllerName,
-						"foo":                      "bar",
+						discovery.LabelManagedBy:          controllerName,
+						"foo":                             "bar",
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -173,9 +173,9 @@ func TestNewEndpointSlice(t *testing.T) {
 			expectedSlice: &discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						discovery.LabelServiceName: service.Name,
+						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:   controllerName,
+						discovery.LabelManagedBy:          controllerName,
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
