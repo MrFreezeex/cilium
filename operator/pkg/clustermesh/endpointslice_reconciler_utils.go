@@ -18,9 +18,30 @@ import (
 	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
+// newEndpoint returns an Endpoint object generated from an address
+func newEndpoint(address string) *discovery.Endpoint {
+	ready := true
+	serving := true
+	terminating := false
+
+	return &discovery.Endpoint{
+		Addresses: []string{address},
+		Conditions: discovery.EndpointConditions{
+			Ready:       &ready,
+			Serving:     &serving,
+			Terminating: &terminating,
+		},
+	}
+}
+
+func isMatchingAddressType(address string, addressType discovery.AddressType) bool {
+	isAddressIPv6 := utilnet.IsIPv6String(address)
+	return isAddressIPv6 == (addressType == discovery.AddressTypeIPv6)
+}
+
 // getEndpointPorts returns a list of EndpointPorts generated from a Service
 // and a Global Service.
-func getEndpointPorts(service *v1.Service, clusterSvc *serviceStore.ClusterService) []discovery.EndpointPort {
+func getEndpointPorts(service *v1.Service, portConfiguration serviceStore.PortConfiguration) []discovery.EndpointPort {
 	endpointPorts := []discovery.EndpointPort{}
 
 	// Allow headless service not to have ports.
@@ -33,20 +54,18 @@ func getEndpointPorts(service *v1.Service, clusterSvc *serviceStore.ClusterServi
 
 		portName := servicePort.Name
 		portProto := servicePort.Protocol
-		for _, portConfiguration := range clusterSvc.Backends {
-			portNum, err := findPort(portConfiguration, servicePort)
-			if err != nil {
-				log.Info("Failed to find port for service", "service", klog.KObj(service), "err", err)
-				continue
-			}
-
-			endpointPorts = append(endpointPorts, discovery.EndpointPort{
-				Name:        &portName,
-				Port:        &portNum,
-				Protocol:    &portProto,
-				AppProtocol: servicePort.AppProtocol,
-			})
+		portNum, err := findPort(portConfiguration, servicePort)
+		if err != nil {
+			log.Info("Failed to find port for service", "service", klog.KObj(service), "err", err)
+			continue
 		}
+
+		endpointPorts = append(endpointPorts, discovery.EndpointPort{
+			Name:        &portName,
+			Port:        &portNum,
+			Protocol:    &portProto,
+			AppProtocol: servicePort.AppProtocol,
+		})
 
 	}
 
