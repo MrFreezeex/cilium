@@ -4,8 +4,11 @@
 package clustermesh
 
 import (
-	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/operator/metrics"
+	agentmetrics "github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
+	endpointslicemetrics "k8s.io/endpointslice/metrics"
+	k8smetrics "k8s.io/component-base/metrics"
 )
 
 type Metrics struct {
@@ -25,9 +28,25 @@ type Metrics struct {
 	// EndpointSliceSyncs tracks the number of sync operations the controller
 	// runs along with their result.
 	EndpointSliceSyncs metric.Vec[metric.Counter]
+	// NumEndpointSlices tracks the number of EndpointSlices in a cluster.
+	NumEndpointSlices *k8smetrics.GaugeVec
+	// DesiredEndpointSlices tracks the number of EndpointSlices that would
+	// exist with perfect endpoint allocation.
+	DesiredEndpointSlices *k8smetrics.GaugeVec
+	// EndpointSliceChanges tracks the number of changes to Endpoint Slices.
+	EndpointSliceChanges *k8smetrics.CounterVec
 }
 
 func NewMetrics() Metrics {
+	endpointslicemetrics.NumEndpointSlices.Subsystem = subsystem
+	endpointslicemetrics.NumEndpointSlices.Namespace = metrics.Namespace
+
+	endpointslicemetrics.DesiredEndpointSlices.Subsystem = subsystem
+	endpointslicemetrics.DesiredEndpointSlices.Namespace = metrics.Namespace
+
+	endpointslicemetrics.EndpointSliceChanges.Subsystem = subsystem
+	endpointslicemetrics.EndpointSliceChanges.Namespace = metrics.Namespace
+
 	return Metrics{
 		TotalGlobalServices: metric.NewGaugeVec(metric.GaugeOpts{
 			ConfigName: metrics.Namespace + "_" + subsystem + "_global_services",
@@ -35,7 +54,7 @@ func NewMetrics() Metrics {
 			Subsystem:  subsystem,
 			Name:       "global_services",
 			Help:       "The total number of global services in the cluster mesh",
-		}, []string{metrics.LabelSourceCluster}),
+		}, []string{agentmetrics.LabelSourceCluster}),
 		// EndpointsAddedPerSync tracks the number of endpoints added on each
 		// Service sync.
 		EndpointsAddedPerSync: metric.NewHistogramVec(
@@ -98,5 +117,9 @@ func NewMetrics() Metrics {
 			},
 			[]string{"result"}, // either "success", "stale", or "error"
 		),
+
+		NumEndpointSlices: endpointslicemetrics.NumEndpointSlices,
+		DesiredEndpointSlices: endpointslicemetrics.DesiredEndpointSlices,
+		EndpointSliceChanges: endpointslicemetrics.EndpointSliceChanges,
 	}
 }

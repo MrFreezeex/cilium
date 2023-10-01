@@ -31,6 +31,9 @@ var Cell = cell.Module(
 	"Operator ClusterMesh is the Cilium multicluster compnent in the Cilium operator",
 	cell.Config(ClusterMeshConfig{}),
 	cell.Provide(newClusterMesh),
+
+	cell.Metric(NewMetrics),
+	cell.Metric(common.MetricsProvider(subsystem)),
 )
 
 // ClusterMeshCnfig contains the configuration for ClusterMesh inside the operator.
