@@ -4,10 +4,12 @@
 package clustermesh
 
 import (
+	"unsafe"
+
 	"github.com/cilium/cilium/operator/metrics"
 	agentmetrics "github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
-	k8smetrics "k8s.io/component-base/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	endpointslicemetrics "k8s.io/endpointslice/metrics"
 )
 
@@ -29,23 +31,50 @@ type Metrics struct {
 	// runs along with their result.
 	EndpointSliceSyncs metric.Vec[metric.Counter]
 	// NumEndpointSlices tracks the number of EndpointSlices in a cluster.
-	NumEndpointSlices *k8smetrics.GaugeVec
+	NumEndpointSlices metric.Vec[metric.Gauge]
 	// DesiredEndpointSlices tracks the number of EndpointSlices that would
 	// exist with perfect endpoint allocation.
-	DesiredEndpointSlices *k8smetrics.GaugeVec
+	DesiredEndpointSlices metric.Vec[metric.Gauge]
 	// EndpointSliceChanges tracks the number of changes to Endpoint Slices.
-	EndpointSliceChanges *k8smetrics.CounterVec
+	EndpointSliceChanges metric.Vec[metric.Counter]
 }
 
 func NewMetrics() Metrics {
-	endpointslicemetrics.NumEndpointSlices.Subsystem = subsystem
-	endpointslicemetrics.NumEndpointSlices.Namespace = metrics.Namespace
+	// Some metrics are referenced within k8s code so we have to override
+	// the prometheus vec inside kubernetes
+	numEndpointSlices := metric.NewGaugeVec(
+		metric.GaugeOpts{
+			ConfigName: metrics.Namespace + "_" + subsystem + "_num_endpoint_slices",
+			Subsystem:  subsystem,
+			Name:       "endpoints_desired",
+			Help:       "Number of endpoints desired",
+		},
+		[]string{},
+	)
+	promNumEndpointSlices := (*prometheus.GaugeVec)(unsafe.Pointer(&numEndpointSlices))
+	endpointslicemetrics.NumEndpointSlices.GaugeVec = promNumEndpointSlices
 
-	endpointslicemetrics.DesiredEndpointSlices.Subsystem = subsystem
-	endpointslicemetrics.DesiredEndpointSlices.Namespace = metrics.Namespace
+	desiredEndpointSlices := metric.NewGaugeVec(
+		metric.GaugeOpts{
+			ConfigName: metrics.Namespace + "_" + subsystem + "_desired_endpoint_slices",
+			Subsystem:      subsystem,
+			Help:           "Number of EndpointSlices that would exist with perfect endpoint allocation",
+		},
+		[]string{},
+	)
+	promDesiredEndpointSlices := (*prometheus.GaugeVec)(unsafe.Pointer(&desiredEndpointSlices))
+	endpointslicemetrics.DesiredEndpointSlices.GaugeVec = promDesiredEndpointSlices
 
-	endpointslicemetrics.EndpointSliceChanges.Subsystem = subsystem
-	endpointslicemetrics.EndpointSliceChanges.Namespace = metrics.Namespace
+	endpointSliceChanges := metric.NewCounterVec(
+		metric.CounterOpts{
+			ConfigName: metrics.Namespace + "_" + subsystem + "_endpoint_slice_changes",
+			Subsystem:      subsystem,
+			Help:           "Number of EndpointSlice changes",
+		},
+		[]string{"operation"},
+	)
+	promEndpointSliceChanges := (*prometheus.GaugeVec)(unsafe.Pointer(&endpointSliceChanges))
+	endpointslicemetrics.DesiredEndpointSlices.GaugeVec = promEndpointSliceChanges
 
 	return Metrics{
 		TotalGlobalServices: metric.NewGaugeVec(metric.GaugeOpts{
@@ -118,8 +147,8 @@ func NewMetrics() Metrics {
 			[]string{"result"}, // either "success", "stale", or "error"
 		),
 
-		NumEndpointSlices:     endpointslicemetrics.NumEndpointSlices,
-		DesiredEndpointSlices: endpointslicemetrics.DesiredEndpointSlices,
-		EndpointSliceChanges:  endpointslicemetrics.EndpointSliceChanges,
+		NumEndpointSlices:     numEndpointSlices,
+		DesiredEndpointSlices: desiredEndpointSlices,
+		EndpointSliceChanges:  endpointSliceChanges,
 	}
 }

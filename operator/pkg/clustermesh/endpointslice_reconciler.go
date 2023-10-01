@@ -16,7 +16,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/endpointslice/metrics"
+	endpointslicemetrics "k8s.io/endpointslice/metrics"
 	endpointsliceutil "k8s.io/endpointslice/util"
 )
 
@@ -25,7 +25,8 @@ import (
 type EndpointSliceReconciler struct {
 	client               clientset.Interface
 	maxEndpointsPerSlice int
-	metricsCache         *metrics.Cache
+	metricsCache         *endpointslicemetrics.Cache
+	metrics              *Metrics
 	controllerName       string
 }
 
@@ -89,7 +90,7 @@ func (r *EndpointSliceReconciler) Reconcile(
 			errs = append(errs, fmt.Errorf("error deleting %s EndpointSlice for Service %s/%s: %w", sliceToDelete.Name, service.Namespace, service.Name, err))
 		} else {
 			endpointSliceTracker.ExpectDeletion(sliceToDelete)
-			metrics.EndpointSliceChanges.WithLabelValues("delete").Inc()
+			r.metrics.EndpointSliceChanges.WithLabelValues("delete").Inc()
 		}
 	}
 
@@ -149,7 +150,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(
 		desiredEndpointsByPortMap[epHash].Insert(newEndpoint(address))
 	}
 
-	spMetrics := metrics.NewServicePortCache()
+	spMetrics := endpointslicemetrics.NewServicePortCache()
 	totalAdded := 0
 	totalRemoved := 0
 
@@ -162,7 +163,7 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(
 		totalAdded += added
 		totalRemoved += removed
 
-		spMetrics.Set(portMap, metrics.EfficiencyInfo{
+		spMetrics.Set(portMap, endpointslicemetrics.EfficiencyInfo{
 			Endpoints: numEndpoints,
 			Slices:    len(existingSlicesByPortMap[portMap]) + len(pmSlicesToCreate) - len(pmSlicesToDelete),
 		})
@@ -192,14 +193,14 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(
 		} else {
 			slicesToCreate = append(slicesToCreate, placeholderSlice)
 		}
-		spMetrics.Set(endpointsliceutil.NewPortMapKey(placeholderSlice.Ports), metrics.EfficiencyInfo{
+		spMetrics.Set(endpointsliceutil.NewPortMapKey(placeholderSlice.Ports), endpointslicemetrics.EfficiencyInfo{
 			Endpoints: 0,
 			Slices:    1,
 		})
 	}
 
-	metrics.EndpointsAddedPerSync.WithLabelValues().Observe(float64(totalAdded))
-	metrics.EndpointsRemovedPerSync.WithLabelValues().Observe(float64(totalRemoved))
+	r.metrics.EndpointsAddedPerSync.WithLabelValues().Observe(float64(totalAdded))
+	r.metrics.EndpointsRemovedPerSync.WithLabelValues().Observe(float64(totalRemoved))
 
 	serviceNN := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
 	r.metricsCache.UpdateServicePortCache(serviceNN, spMetrics)
@@ -212,14 +213,17 @@ func (r *EndpointSliceReconciler) reconcileByAddressType(
 
 }
 
-func NewEndpointSliceReconciler(client clientset.Interface,
+func newEndpointSliceReconciler(
+	client clientset.Interface,
 	maxEndpointsPerSlice int,
+	metrics *Metrics,
 	controllerName string,
 ) *EndpointSliceReconciler {
 	return &EndpointSliceReconciler{
 		client:               client,
 		maxEndpointsPerSlice: maxEndpointsPerSlice,
-		metricsCache:         metrics.NewCache(int32(maxEndpointsPerSlice)),
+		metricsCache:         endpointslicemetrics.NewCache(int32(maxEndpointsPerSlice)),
+		metrics:              metrics,
 		controllerName:       controllerName,
 	}
 }
@@ -299,7 +303,7 @@ func (r *EndpointSliceReconciler) finalize(
 				return fmt.Errorf("failed to create EndpointSlice for Service %s/%s: %v", service.Namespace, service.Name, err)
 			}
 			endpointSliceTracker.Update(createdSlice)
-			metrics.EndpointSliceChanges.WithLabelValues("create").Inc()
+			r.metrics.EndpointSliceChanges.WithLabelValues("create").Inc()
 		}
 	}
 
@@ -310,7 +314,7 @@ func (r *EndpointSliceReconciler) finalize(
 			return fmt.Errorf("failed to update %s EndpointSlice for Service %s/%s: %v", endpointSlice.Name, service.Namespace, service.Name, err)
 		}
 		endpointSliceTracker.Update(updatedSlice)
-		metrics.EndpointSliceChanges.WithLabelValues("update").Inc()
+		r.metrics.EndpointSliceChanges.WithLabelValues("update").Inc()
 	}
 
 	for _, endpointSlice := range slicesToDelete {
@@ -319,11 +323,11 @@ func (r *EndpointSliceReconciler) finalize(
 			return fmt.Errorf("failed to delete %s EndpointSlice for Service %s/%s: %v", endpointSlice.Name, service.Namespace, service.Name, err)
 		}
 		endpointSliceTracker.ExpectDeletion(endpointSlice)
-		metrics.EndpointSliceChanges.WithLabelValues("delete").Inc()
+		r.metrics.EndpointSliceChanges.WithLabelValues("delete").Inc()
 	}
 
 	numSlicesChanged := len(slicesToCreate) + len(slicesToUpdate) + len(slicesToDelete)
-	metrics.EndpointSlicesChangedPerSync.WithLabelValues().Observe(float64(numSlicesChanged))
+	r.metrics.EndpointSlicesChangedPerSync.WithLabelValues().Observe(float64(numSlicesChanged))
 
 	return nil
 }

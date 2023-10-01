@@ -199,9 +199,10 @@ func NewEndpointSliceController(
 
 	c.endpointUpdatesBatchPeriod = endpointUpdatesBatchPeriod
 
-	c.reconciler = NewEndpointSliceReconciler(
+	c.reconciler = newEndpointSliceReconciler(
 		c.clientset,
 		c.maxEndpointsPerSlice,
+		&c.cm.Metrics,
 		controllerName,
 	)
 
