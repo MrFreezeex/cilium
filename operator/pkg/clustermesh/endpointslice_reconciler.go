@@ -36,10 +36,9 @@ type endpointMeta struct {
 	addressType discovery.AddressType
 }
 
-// Reconcile takes a set of pods currently matching a service selector and
-// compares them with the endpoints already present in any existing endpoint
-// slices for the given service. It creates, updates, or deletes endpoint slices
-// to ensure the desired set of pods are represented by endpoint slices.
+// Reconcile takes a cluster service and compares them with the endpoints
+// already present in any existing endpoint slices for the given service.
+// It creates, updates, or deletes endpoint slices to match the desired endpooint slices.
 func (r *EndpointSliceReconciler) Reconcile(
 	service *corev1.Service,
 	clusterSvc *serviceStore.ClusterService,
@@ -97,10 +96,10 @@ func (r *EndpointSliceReconciler) Reconcile(
 	return utilerrors.NewAggregate(errs)
 }
 
-// reconcileByAddressType takes a set of pods currently matching a service selector and
-// compares them with the endpoints already present in any existing endpoint
-// slices (by address type) for the given service. It creates, updates, or deletes endpoint slices
-// to ensure the desired set of pods are represented by endpoint slices.
+// reconcileByAddressType takes a cluster service and compares them with the
+// endpoints already present in any existing endpoint slices (by address type)
+// for the given service. It creates, updates, or deletes endpoint slices
+// to match the desired endpooint slices.
 func (r *EndpointSliceReconciler) reconcileByAddressType(
 	service *corev1.Service,
 	clusterSvc *serviceStore.ClusterService,

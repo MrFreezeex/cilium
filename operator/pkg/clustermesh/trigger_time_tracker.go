@@ -53,7 +53,7 @@ type ServiceState struct {
 // annotation shouldn't be exported.
 //
 // Please note that this function may compute a wrong value if the same object
-// (pod/service) changes multiple times between two consecutive syncs.
+// (clusterSyncedTime/service) changes multiple times between two consecutive syncs.
 //
 // Important: This method is go-routing safe but only when called for different
 // keys. The method shouldn't be called concurrently for the same key! This

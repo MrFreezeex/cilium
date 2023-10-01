@@ -281,11 +281,7 @@ func getAddressTypesForService(service *v1.Service) sets.Set[discovery.AddressTy
 		return serviceSupportedAddresses
 	}
 
-	// headless
-	// for now we assume two families. This should have minimal side effect
-	// if the service is headless with no selector, then this will remain the case
-	// if the service is headless with selector then chances are pods are still using single family
-	// since kubelet will need to restart in order to start patching pod status with multiple ips
+	// We assume two familised for headless services
 	serviceSupportedAddresses.Insert(discovery.AddressTypeIPv4)
 	serviceSupportedAddresses.Insert(discovery.AddressTypeIPv6)
 	log.Info("Couldn't find ipfamilies for headless service, likely because controller manager is likely connected to an old apiserver that does not support ip families yet. The service endpoint slice will use dual stack families until api-server default it correctly", "service", klog.KObj(service))
@@ -299,11 +295,10 @@ func isServiceIPSet(service *v1.Service) bool {
 	return service.Spec.ClusterIP != v1.ClusterIPNone && service.Spec.ClusterIP != ""
 }
 
-// findPort locates the container port for the given pod and portName.  If the
-// targetPort is a number, use that.  If the targetPort is a string, look that
-// string up in all named ports in all containers in the target pod.  If no
-// match is found, fail.
-// copied from k8s.io/kubernetes/pkg/api/v1/pod
+// findPort locates the port for the given portConfiguration from cluster service and
+// service port.  If the targetPort is a number, use that.  If the targetPort is a string, look that
+// string up in all named ports.  If no match is found, fail.
+// copied and adapted for Cilium from k8s.io/kubernetes/pkg/api/v1/pod
 func findPort(portConfig serviceStore.PortConfiguration, svcPort *v1.ServicePort) (int32, error) {
 	portName := svcPort.TargetPort
 	switch portName.Type {

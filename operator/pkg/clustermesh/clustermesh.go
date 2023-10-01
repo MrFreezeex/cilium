@@ -44,7 +44,7 @@ type ClusterMeshConfig struct {
 	// that will be done concurrently by the EndpointSlice Cluster Mesh controller.
 	ConurrentClusterMeshEndpointSync int `mapstructure:"concurrent-service-endpoint-syncs"`
 	// ClusterMeshEndpointUpdatesBatchPeriod describes the length of endpoint updates batching period.
-	// Processing of pod changes will be delayed by this duration to join them with potential
+	// Processing of cluster service changes will be delayed by this duration to join them with potential
 	// upcoming updates and reduce the overall number of endpoints updates.
 	ClusterMeshEndpointUpdatesBatchPeriod time.Duration `mapstructure:"cluster-mesh-endpoint-updates-batch-period"`
 	// ClusterMeshEndpointsPerSlice is the maximum number of endpoints that

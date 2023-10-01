@@ -47,12 +47,11 @@ func TestUpdatedNoOp(t *testing.T) {
 	tester := newTester(t)
 
 	service := createService(ttNamespace, ttServiceName, t0)
-	tester.whenComputeEndpointLastChangeTriggerTime(ttKey, service, ttClusterName,t0).expect(t0)
+	tester.whenComputeEndpointLastChangeTriggerTime(ttKey, service, ttClusterName, t0).expect(t0)
 
 	// Nothing has changed.
-	tester.whenComputeEndpointLastChangeTriggerTime(ttKey, service, ttClusterName,t0).expectNil()
+	tester.whenComputeEndpointLastChangeTriggerTime(ttKey, service, ttClusterName, t0).expectNil()
 }
-
 
 func TestServiceDeletedThenAdded(t *testing.T) {
 	tester := newTester(t)
@@ -66,7 +65,7 @@ func TestServiceDeletedThenAdded(t *testing.T) {
 	tester.whenComputeEndpointLastChangeTriggerTime(ttKey, service, ttClusterName, t2).expect(t3)
 }
 
-func TestServiceUpdatedNoPodChange(t *testing.T) {
+func TestServiceUpdatedNoChange(t *testing.T) {
 	tester := newTester(t)
 
 	service := createService(ttNamespace, ttServiceName, t0)

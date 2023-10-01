@@ -252,8 +252,8 @@ type EndpointSliceController struct {
 	triggerTimeTracker *TriggerTimeTracker
 
 	// Services that need to be updated. A channel is inappropriate here,
-	// because it allows services with lots of pods to be serviced much
-	// more often than services with few pods; it also would cause a
+	// because it allows services with lots of endpoints to be serviced much
+	// more often than services with few endpoints; it also would cause a
 	// service that's inserted multiple times to be processed more than
 	// necessary.
 	queue workqueue.RateLimitingInterface
@@ -269,7 +269,7 @@ type EndpointSliceController struct {
 	// numbers of workers that are concurrently launched
 	workers int
 
-	// endpointUpdatesBatchPeriod is an artificial delay added to all service syncs triggered by pod changes.
+	// endpointUpdatesBatchPeriod is an artificial delay added to all service syncs triggered by cluster service change.
 	// This can be used to reduce overall number of all endpoint slice updates.
 	endpointUpdatesBatchPeriod time.Duration
 }
