@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	serviceStore "github.com/cilium/cilium/pkg/service/store"
+	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/metrics/metric"
+	serviceStore "github.com/cilium/cilium/pkg/service/store"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -25,6 +27,8 @@ import (
 	"k8s.io/component-base/metrics/testutil"
 	endpointslicemetrics "k8s.io/endpointslice/metrics"
 	endpointsliceutil "k8s.io/endpointslice/util"
+	"k8s.io/utils/pointer"
+	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 )
 
 func expectAction(t *testing.T, actions []k8stesting.Action, index int, verb, resource string) {
@@ -173,7 +177,7 @@ func TestReconcileEmpty(t *testing.T) {
 	endpointSliceTracker := endpointsliceutil.NewEndpointSliceTracker()
 
 	r := newReconciler(client, defaultMaxEndpointsPerSlice)
-	reconcileHelper(t, r, &svc, &serviceStore.ClusterService{}, []*discovery.EndpointSlice{}, time.Now(), endpointSliceTracker)
+	reconcileHelper(t, r, &svc, &serviceStore.ClusterService{Cluster: "cluster1"}, []*discovery.EndpointSlice{}, time.Now(), endpointSliceTracker)
 	expectActions(t, client.Actions(), 1, "create", "endpointslices")
 
 	slices := fetchEndpointSlices(t, client, namespace)
@@ -181,13 +185,347 @@ func TestReconcileEmpty(t *testing.T) {
 
 	assert.Regexp(t, "^"+svc.Name, slices[0].Name)
 	assert.Equal(t, svc.Name, slices[0].Labels[discovery.LabelServiceName])
+	assert.Equal(t, "cluster1", slices[0].Labels[mcsapiv1alpha1.LabelSourceCluster])
 	assert.EqualValues(t, []discovery.EndpointPort{}, slices[0].Ports)
 	assert.EqualValues(t, []discovery.Endpoint{}, slices[0].Endpoints)
 	expectTrackedGeneration(t, endpointSliceTracker, &slices[0], 1)
 	expectMetrics(t, r.metrics, expectedMetrics{desiredSlices: 1, actualSlices: 1, desiredEndpoints: 0, addedPerSync: 0, removedPerSync: 0, numCreated: 1, numUpdated: 0, numDeleted: 0, slicesChangedPerSync: 1})
 }
 
+// Given a single pod matching a service selector and no existing endpoint slices,
+// a slice should be created
+func TestReconcileSimple(t *testing.T) {
+	namespace := "test"
+	noFamilyService, _ := newServiceAndEndpointMeta("foo", namespace)
+	noFamilyService.Spec.ClusterIP = "10.0.0.10"
+	noFamilyService.Spec.IPFamilies = nil
+
+	svcv4, _ := newServiceAndEndpointMeta("foo", namespace)
+	svcv4ClusterIP, _ := newServiceAndEndpointMeta("foo", namespace)
+	svcv4ClusterIP.Spec.ClusterIP = "1.1.1.1"
+	svcv4Labels, _ := newServiceAndEndpointMeta("foo", namespace)
+	svcv4Labels.Labels = map[string]string{"foo": "bar"}
+	svcv4BadLabels, _ := newServiceAndEndpointMeta("foo", namespace)
+	svcv4BadLabels.Labels = map[string]string{discovery.LabelServiceName: "bad",
+		discovery.LabelManagedBy: "actor", corev1.IsHeadlessService: "invalid"}
+	svcv6, _ := newServiceAndEndpointMeta("foo", namespace)
+	svcv6.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv6Protocol}
+	svcv6ClusterIP, _ := newServiceAndEndpointMeta("foo", namespace)
+	svcv6ClusterIP.Spec.ClusterIP = "1234::5678:0000:0000:9abc:def1"
+	// newServiceAndEndpointMeta generates v4 single stack
+	svcv6ClusterIP.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv6Protocol}
+
+	// dual stack
+	dualStackSvc, _ := newServiceAndEndpointMeta("foo", namespace)
+	dualStackSvc.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv4Protocol, corev1.IPv6Protocol}
+	dualStackSvc.Spec.ClusterIP = "10.0.0.10"
+	dualStackSvc.Spec.ClusterIPs = []string{"10.0.0.10", "2000::1"}
+
+	clusterSvc1 := newClusterSvc(1)
+	clusterSvc1.Backends = map[string]serviceStore.PortConfiguration{
+		"1.2.3.4":                        map[string]*loadbalancer.L4Addr{},
+		"1234::5678:0000:0000:9abc:def0": map[string]*loadbalancer.L4Addr{},
+	}
+
+	testCases := map[string]struct {
+		service                  corev1.Service
+		expectedAddressType      discovery.AddressType
+		expectedEndpoint         discovery.Endpoint
+		expectedLabels           map[string]string
+		expectedEndpointPerSlice map[discovery.AddressType][]discovery.Endpoint
+	}{
+		"no-family-service": {
+			service: noFamilyService,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv4: {
+					{
+						Addresses: []string{"1.2.3.4"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+			},
+		},
+		"ipv4": {
+			service: svcv4,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv4: {
+					{
+						Addresses: []string{"1.2.3.4"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+				corev1.IsHeadlessService:          "",
+			},
+		},
+		"ipv4-clusterip": {
+			service: svcv4ClusterIP,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv4: {
+					{
+						Addresses: []string{"1.2.3.4"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedAddressType: discovery.AddressTypeIPv4,
+			expectedEndpoint: discovery.Endpoint{
+				Addresses: []string{"1.2.3.4"},
+				Conditions: discovery.EndpointConditions{
+					Ready:       pointer.Bool(true),
+					Serving:     pointer.Bool(true),
+					Terminating: pointer.Bool(false),
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+			},
+		},
+		"ipv4-labels": {
+			service: svcv4Labels,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv4: {
+					{
+						Addresses: []string{"1.2.3.4"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedAddressType: discovery.AddressTypeIPv4,
+			expectedEndpoint: discovery.Endpoint{
+				Addresses: []string{"1.2.3.4"},
+				Conditions: discovery.EndpointConditions{
+					Ready:       pointer.Bool(true),
+					Serving:     pointer.Bool(true),
+					Terminating: pointer.Bool(false),
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+				"foo":                             "bar",
+				corev1.IsHeadlessService:          "",
+			},
+		},
+		"ipv4-bad-labels": {
+			service: svcv4BadLabels,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv4: {
+					{
+						Addresses: []string{"1.2.3.4"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedAddressType: discovery.AddressTypeIPv4,
+			expectedEndpoint: discovery.Endpoint{
+				Addresses: []string{"1.2.3.4"},
+				Conditions: discovery.EndpointConditions{
+					Ready:       pointer.Bool(true),
+					Serving:     pointer.Bool(true),
+					Terminating: pointer.Bool(false),
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+				corev1.IsHeadlessService:          "",
+			},
+		},
+
+		"ipv6": {
+			service: svcv6,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv6: {
+					{
+						Addresses: []string{"1234::5678:0000:0000:9abc:def0"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+				corev1.IsHeadlessService:          "",
+			},
+		},
+
+		"ipv6-clusterip": {
+			service: svcv6ClusterIP,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv6: {
+					{
+						Addresses: []string{"1234::5678:0000:0000:9abc:def0"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+			},
+		},
+
+		"dualstack-service": {
+			service: dualStackSvc,
+			expectedEndpointPerSlice: map[discovery.AddressType][]discovery.Endpoint{
+				discovery.AddressTypeIPv6: {
+					{
+						Addresses: []string{"1234::5678:0000:0000:9abc:def0"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+				discovery.AddressTypeIPv4: {
+					{
+						Addresses: []string{"1.2.3.4"},
+						Conditions: discovery.EndpointConditions{
+							Ready:       pointer.Bool(true),
+							Serving:     pointer.Bool(true),
+							Terminating: pointer.Bool(false),
+						},
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				discovery.LabelManagedBy:          controllerName,
+				mcsapiv1alpha1.LabelSourceCluster: "cluster1",
+				discovery.LabelServiceName:        "foo",
+			},
+		},
+	}
+
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			client := newClientset()
+			triggerTime := time.Now().UTC()
+			endpointSliceTracker := endpointsliceutil.NewEndpointSliceTracker()
+			r := newReconciler(client, defaultMaxEndpointsPerSlice)
+
+			reconcileHelper(t, r, &testCase.service, clusterSvc1, []*discovery.EndpointSlice{}, triggerTime, endpointSliceTracker)
+
+			if len(client.Actions()) != len(testCase.expectedEndpointPerSlice) {
+				t.Errorf("Expected %v clientset action, got %d", len(testCase.expectedEndpointPerSlice), len(client.Actions()))
+			}
+
+			slices := fetchEndpointSlices(t, client, namespace)
+
+			if len(slices) != len(testCase.expectedEndpointPerSlice) {
+				t.Fatalf("Expected %v EndpointSlice, got %d", len(testCase.expectedEndpointPerSlice), len(slices))
+			}
+
+			for _, slice := range slices {
+				if !strings.HasPrefix(slice.Name, testCase.service.Name) {
+					t.Fatalf("Expected EndpointSlice name to start with %s, got %s", testCase.service.Name, slice.Name)
+				}
+
+				if !reflect.DeepEqual(testCase.expectedLabels, slice.Labels) {
+					t.Errorf("Expected EndpointSlice to have labels: %v , got %v", testCase.expectedLabels, slice.Labels)
+				}
+				if slice.Labels[discovery.LabelServiceName] != testCase.service.Name {
+					t.Fatalf("Expected EndpointSlice to have label set with %s value, got %s", testCase.service.Name, slice.Labels[discovery.LabelServiceName])
+				}
+
+				if slice.Annotations[corev1.EndpointsLastChangeTriggerTime] != triggerTime.Format(time.RFC3339Nano) {
+					t.Fatalf("Expected EndpointSlice trigger time annotation to be %s, got %s", triggerTime.Format(time.RFC3339Nano), slice.Annotations[corev1.EndpointsLastChangeTriggerTime])
+				}
+
+				// validate that this slice has address type matching expected
+				expectedEndPointList := testCase.expectedEndpointPerSlice[slice.AddressType]
+				if expectedEndPointList == nil {
+					t.Fatalf("address type %v is not expected", slice.AddressType)
+				}
+
+				if len(slice.Endpoints) != len(expectedEndPointList) {
+					t.Fatalf("Expected %v Endpoint, got %d", len(expectedEndPointList), len(slice.Endpoints))
+				}
+
+				// test is limited to *ONE* endpoint
+				endpoint := slice.Endpoints[0]
+				if !reflect.DeepEqual(endpoint, expectedEndPointList[0]) {
+					t.Fatalf("Expected endpoint: %+v, got: %+v", expectedEndPointList[0], endpoint)
+				}
+
+				expectTrackedGeneration(t, endpointSliceTracker, &slice, 1)
+
+				expectSlicesChangedPerSync := 1
+				if testCase.service.Spec.IPFamilies != nil && len(testCase.service.Spec.IPFamilies) > 0 {
+					expectSlicesChangedPerSync = len(testCase.service.Spec.IPFamilies)
+				}
+				expectMetrics(t,
+					r.metrics,
+					expectedMetrics{
+						desiredSlices:        1,
+						actualSlices:         1,
+						desiredEndpoints:     1,
+						addedPerSync:         len(testCase.expectedEndpointPerSlice),
+						removedPerSync:       0,
+						numCreated:           len(testCase.expectedEndpointPerSlice),
+						numUpdated:           0,
+						numDeleted:           0,
+						slicesChangedPerSync: expectSlicesChangedPerSync,
+					})
+			}
+		})
+	}
+}
+
 // Test Helpers
+
+func newClusterSvc(n int) *serviceStore.ClusterService {
+	return &serviceStore.ClusterService{
+		Cluster: "cluster1",
+		Backends: map[string]serviceStore.PortConfiguration{
+			fmt.Sprintf("1.2.3.%d", 4+n): map[string]*loadbalancer.L4Addr{},
+		},
+	}
+}
 
 func newClientset() *fake.Clientset {
 	client := fake.NewSimpleClientset()
@@ -373,17 +711,17 @@ func reconcileHelper(t *testing.T, r *EndpointSliceReconciler, service *corev1.S
 // Metrics helpers
 
 type expectedMetrics struct {
-	desiredSlices                int
-	actualSlices                 int
-	desiredEndpoints             int
-	addedPerSync                 int
-	removedPerSync               int
-	numCreated                   int
-	numUpdated                   int
-	numDeleted                   int
-	slicesChangedPerSync         int
-	syncSuccesses                int
-	syncErrors                   int
+	desiredSlices        int
+	actualSlices         int
+	desiredEndpoints     int
+	addedPerSync         int
+	removedPerSync       int
+	numCreated           int
+	numUpdated           int
+	numDeleted           int
+	slicesChangedPerSync int
+	syncSuccesses        int
+	syncErrors           int
 }
 
 func expectMetrics(t *testing.T, metrics *Metrics, em expectedMetrics) {
