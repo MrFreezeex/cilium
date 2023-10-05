@@ -2,20 +2,28 @@ package clustermesh
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
+	"github.com/cilium/cilium/pkg/metrics/metric"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/component-base/metrics/testutil"
+	endpointslicemetrics "k8s.io/endpointslice/metrics"
 	endpointsliceutil "k8s.io/endpointslice/util"
 )
 
@@ -157,7 +165,86 @@ func TestPlaceHolderSliceCompare(t *testing.T) {
 	}
 }
 
+// Even when there are no pods, we want to have a placeholder slice for each service
+func TestReconcileEmpty(t *testing.T) {
+	client := newClientset()
+	namespace := "test"
+	svc, _ := newServiceAndEndpointMeta("foo", namespace)
+	endpointSliceTracker := endpointsliceutil.NewEndpointSliceTracker()
+
+	r := newReconciler(client, defaultMaxEndpointsPerSlice)
+	reconcileHelper(t, r, &svc, &serviceStore.ClusterService{}, []*discovery.EndpointSlice{}, time.Now(), endpointSliceTracker)
+	expectActions(t, client.Actions(), 1, "create", "endpointslices")
+
+	slices := fetchEndpointSlices(t, client, namespace)
+	assert.Len(t, slices, 1, "Expected 1 endpoint slices")
+
+	assert.Regexp(t, "^"+svc.Name, slices[0].Name)
+	assert.Equal(t, svc.Name, slices[0].Labels[discovery.LabelServiceName])
+	assert.EqualValues(t, []discovery.EndpointPort{}, slices[0].Ports)
+	assert.EqualValues(t, []discovery.Endpoint{}, slices[0].Endpoints)
+	expectTrackedGeneration(t, endpointSliceTracker, &slices[0], 1)
+	expectMetrics(t, r.metrics, expectedMetrics{desiredSlices: 1, actualSlices: 1, desiredEndpoints: 0, addedPerSync: 0, removedPerSync: 0, numCreated: 1, numUpdated: 0, numDeleted: 0, slicesChangedPerSync: 1})
+}
+
 // Test Helpers
+
+func newClientset() *fake.Clientset {
+	client := fake.NewSimpleClientset()
+
+	client.PrependReactor("create", "endpointslices", k8stesting.ReactionFunc(func(action k8stesting.Action) (bool, runtime.Object, error) {
+		endpointSlice := action.(k8stesting.CreateAction).GetObject().(*discovery.EndpointSlice)
+
+		if endpointSlice.ObjectMeta.GenerateName != "" {
+			endpointSlice.ObjectMeta.Name = fmt.Sprintf("%s-%s", endpointSlice.ObjectMeta.GenerateName, rand.String(8))
+			endpointSlice.ObjectMeta.GenerateName = ""
+		}
+		endpointSlice.ObjectMeta.Generation = 1
+
+		return false, endpointSlice, nil
+	}))
+	client.PrependReactor("update", "endpointslices", k8stesting.ReactionFunc(func(action k8stesting.Action) (bool, runtime.Object, error) {
+		endpointSlice := action.(k8stesting.CreateAction).GetObject().(*discovery.EndpointSlice)
+		endpointSlice.ObjectMeta.Generation++
+		return false, endpointSlice, nil
+	}))
+
+	return client
+}
+
+func newServiceAndEndpointMeta(name, namespace string) (v1.Service, endpointMeta) {
+	portNum := int32(80)
+	portNameIntStr := intstr.IntOrString{
+		Type:   intstr.Int,
+		IntVal: portNum,
+	}
+
+	svc := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			UID:       types.UID(namespace + "-" + name),
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				TargetPort: portNameIntStr,
+				Protocol:   v1.ProtocolTCP,
+				Name:       name,
+			}},
+			Selector:   map[string]string{"foo": "bar"},
+			IPFamilies: []v1.IPFamily{v1.IPv4Protocol},
+		},
+	}
+
+	addressType := discovery.AddressTypeIPv4
+	protocol := v1.ProtocolTCP
+	endpointMeta := endpointMeta{
+		addressType: addressType,
+		ports:       []discovery.EndpointPort{{Name: &name, Port: &portNum, Protocol: &protocol}},
+	}
+
+	return svc, endpointMeta
+}
 
 func newReconciler(client *fake.Clientset, maxEndpointsPerSlice int) *EndpointSliceReconciler {
 	metrics := NewMetrics()
@@ -295,7 +382,6 @@ type expectedMetrics struct {
 	numUpdated                   int
 	numDeleted                   int
 	slicesChangedPerSync         int
-	slicesChangedPerSyncTopology int
 	syncSuccesses                int
 	syncErrors                   int
 }
@@ -303,6 +389,26 @@ type expectedMetrics struct {
 func expectMetrics(t *testing.T, metrics *Metrics, em expectedMetrics) {
 	t.Helper()
 
+	// Global Kubernetes fields tests
+	k8sActualDesiredSlices, err := testutil.GetGaugeMetricValue(endpointslicemetrics.DesiredEndpointSlices.WithLabelValues())
+	handleErr(t, err, "k8sDesiredEndpointSlices")
+	if k8sActualDesiredSlices != float64(em.desiredSlices) {
+		t.Errorf("Expected Kubernetes desiredEndpointSlices to be %d, got %v", em.desiredSlices, k8sActualDesiredSlices)
+	}
+
+	k8sActualNumSlices, err := testutil.GetGaugeMetricValue(endpointslicemetrics.NumEndpointSlices.WithLabelValues())
+	handleErr(t, err, "k8sNumEndpointSlices")
+	if k8sActualNumSlices != float64(em.actualSlices) {
+		t.Errorf("Expected Kubernetes numEndpointSlices to be %d, got %v", em.actualSlices, k8sActualNumSlices)
+	}
+
+	k8sActualEndpointsDesired, err := testutil.GetGaugeMetricValue(endpointslicemetrics.EndpointsDesired.WithLabelValues())
+	handleErr(t, err, "k8sDesiredEndpoints")
+	if k8sActualEndpointsDesired != float64(em.desiredEndpoints) {
+		t.Errorf("Expected Kubernetes desiredEndpoints to be %d, got %v", em.desiredEndpoints, k8sActualEndpointsDesired)
+	}
+
+	// Cilium tests
 	actualDesiredSlices, err := testutil.GetGaugeMetricValue(metrics.DesiredEndpointSlices.WithLabelValues())
 	handleErr(t, err, "desiredEndpointSlices")
 	if actualDesiredSlices != float64(em.desiredSlices) {
@@ -321,13 +427,13 @@ func expectMetrics(t *testing.T, metrics *Metrics, em expectedMetrics) {
 		t.Errorf("Expected desiredEndpoints to be %d, got %v", em.desiredEndpoints, actualEndpointsDesired)
 	}
 
-	actualAddedPerSync, err := testutil.GetHistogramMetricValue(metrics.EndpointsAddedPerSync.WithLabelValues())
+	actualAddedPerSync, err := testutil.GetHistogramMetricValue(toPrometheusHistogramVec(metrics.EndpointsAddedPerSync).WithLabelValues())
 	handleErr(t, err, "endpointsAddedPerSync")
 	if actualAddedPerSync != float64(em.addedPerSync) {
 		t.Errorf("Expected endpointsAddedPerSync to be %d, got %v", em.addedPerSync, actualAddedPerSync)
 	}
 
-	actualRemovedPerSync, err := testutil.GetHistogramMetricValue(metrics.EndpointsRemovedPerSync.WithLabelValues())
+	actualRemovedPerSync, err := testutil.GetHistogramMetricValue(toPrometheusHistogramVec(metrics.EndpointsRemovedPerSync).WithLabelValues())
 	handleErr(t, err, "endpointsRemovedPerSync")
 	if actualRemovedPerSync != float64(em.removedPerSync) {
 		t.Errorf("Expected endpointsRemovedPerSync to be %d, got %v", em.removedPerSync, actualRemovedPerSync)
@@ -351,16 +457,10 @@ func expectMetrics(t *testing.T, metrics *Metrics, em expectedMetrics) {
 		t.Errorf("Expected endpointSliceChangesDeleted to be %d, got %v", em.numDeleted, actualDeleted)
 	}
 
-	actualSlicesChangedPerSync, err := testutil.GetHistogramMetricValue(metrics.EndpointSlicesChangedPerSync.WithLabelValues("Disabled"))
+	actualSlicesChangedPerSync, err := testutil.GetHistogramMetricValue(toPrometheusHistogramVec(metrics.EndpointSlicesChangedPerSync).WithLabelValues())
 	handleErr(t, err, "slicesChangedPerSync")
 	if actualSlicesChangedPerSync != float64(em.slicesChangedPerSync) {
 		t.Errorf("Expected slicesChangedPerSync to be %d, got %v", em.slicesChangedPerSync, actualSlicesChangedPerSync)
-	}
-
-	actualSlicesChangedPerSyncTopology, err := testutil.GetHistogramMetricValue(metrics.EndpointSlicesChangedPerSync.WithLabelValues("Auto"))
-	handleErr(t, err, "slicesChangedPerSyncTopology")
-	if actualSlicesChangedPerSyncTopology != float64(em.slicesChangedPerSyncTopology) {
-		t.Errorf("Expected slicesChangedPerSyncTopology to be %d, got %v", em.slicesChangedPerSyncTopology, actualSlicesChangedPerSyncTopology)
 	}
 
 	actualSyncSuccesses, err := testutil.GetCounterMetricValue(metrics.EndpointSliceSyncs.WithLabelValues("success"))
@@ -374,6 +474,10 @@ func expectMetrics(t *testing.T, metrics *Metrics, em expectedMetrics) {
 	if actualSyncErrors != float64(em.syncErrors) {
 		t.Errorf("Expected endpointSliceSyncErrors to be %d, got %v", em.syncErrors, actualSyncErrors)
 	}
+}
+
+func toPrometheusHistogramVec(histogram metric.Vec[metric.Observer]) *prometheus.HistogramVec {
+	return (*prometheus.HistogramVec)(reflect.ValueOf(histogram).Elem().FieldByName("ObserverVec").Elem().UnsafePointer())
 }
 
 func handleErr(t *testing.T, err error, metricName string) {

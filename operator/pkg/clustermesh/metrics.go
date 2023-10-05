@@ -4,7 +4,9 @@
 package clustermesh
 
 import (
-	"unsafe"
+	"reflect"
+
+	"github.com/blang/semver/v4"
 
 	"github.com/cilium/cilium/operator/metrics"
 	agentmetrics "github.com/cilium/cilium/pkg/metrics"
@@ -22,11 +24,11 @@ type Metrics struct {
 	// EndpointsRemovedPerSync tracks the number of endpoints removed on each
 	// Service sync.
 	EndpointsRemovedPerSync metric.Vec[metric.Observer]
-	// EndpointsDesired tracks the total number of desired endpoints.
-	EndpointsDesired metric.Vec[metric.Gauge]
 	// EndpointSlicesChangedPerSync observes the number of EndpointSlices
 	// changed per sync.
 	EndpointSlicesChangedPerSync metric.Vec[metric.Observer]
+	// EndpointSliceChanges tracks the number of changes to Endpoint Slices.
+	EndpointSliceChanges metric.Vec[metric.Counter]
 	// EndpointSliceSyncs tracks the number of sync operations the controller
 	// runs along with their result.
 	EndpointSliceSyncs metric.Vec[metric.Counter]
@@ -35,13 +37,15 @@ type Metrics struct {
 	// DesiredEndpointSlices tracks the number of EndpointSlices that would
 	// exist with perfect endpoint allocation.
 	DesiredEndpointSlices metric.Vec[metric.Gauge]
-	// EndpointSliceChanges tracks the number of changes to Endpoint Slices.
-	EndpointSliceChanges metric.Vec[metric.Counter]
+	// EndpointsDesired tracks the total number of desired endpoints.
+	EndpointsDesired metric.Vec[metric.Gauge]
 }
 
 func NewMetrics() Metrics {
 	// Some metrics are referenced within k8s code so we have to override
 	// the prometheus vec inside kubernetes
+	version := semver.MustParse("1.0.0") // This is not really used as we override it later anyway
+
 	numEndpointSlices := metric.NewGaugeVec(
 		metric.GaugeOpts{
 			ConfigName: metrics.Namespace + "_" + subsystem + "_num_endpoint_slices",
@@ -51,30 +55,32 @@ func NewMetrics() Metrics {
 		},
 		[]string{},
 	)
-	promNumEndpointSlices := (*prometheus.GaugeVec)(unsafe.Pointer(&numEndpointSlices))
-	endpointslicemetrics.NumEndpointSlices.GaugeVec = promNumEndpointSlices
+
+	endpointslicemetrics.NumEndpointSlices.Create(&version)
+	endpointslicemetrics.NumEndpointSlices.GaugeVec = (*prometheus.GaugeVec)(reflect.ValueOf(numEndpointSlices).Elem().FieldByName("GaugeVec").UnsafePointer())
 
 	desiredEndpointSlices := metric.NewGaugeVec(
 		metric.GaugeOpts{
 			ConfigName: metrics.Namespace + "_" + subsystem + "_desired_endpoint_slices",
-			Subsystem:      subsystem,
-			Help:           "Number of EndpointSlices that would exist with perfect endpoint allocation",
+			Subsystem:  subsystem,
+			Help:       "Number of EndpointSlices that would exist with perfect endpoint allocation",
 		},
 		[]string{},
 	)
-	promDesiredEndpointSlices := (*prometheus.GaugeVec)(unsafe.Pointer(&desiredEndpointSlices))
-	endpointslicemetrics.DesiredEndpointSlices.GaugeVec = promDesiredEndpointSlices
+	endpointslicemetrics.DesiredEndpointSlices.Create(&version)
+	endpointslicemetrics.DesiredEndpointSlices.GaugeVec = (*prometheus.GaugeVec)(reflect.ValueOf(desiredEndpointSlices).Elem().FieldByName("GaugeVec").UnsafePointer())
 
-	endpointSliceChanges := metric.NewCounterVec(
-		metric.CounterOpts{
-			ConfigName: metrics.Namespace + "_" + subsystem + "_endpoint_slice_changes",
-			Subsystem:      subsystem,
-			Help:           "Number of EndpointSlice changes",
+	endpointsDesired := metric.NewGaugeVec(
+		metric.GaugeOpts{
+			ConfigName: metrics.Namespace + "_" + subsystem + "_endpoints_desired",
+			Subsystem:  subsystem,
+			Name:       "endpoints_desired",
+			Help:       "Number of endpoints desired",
 		},
-		[]string{"operation"},
+		[]string{},
 	)
-	promEndpointSliceChanges := (*prometheus.GaugeVec)(unsafe.Pointer(&endpointSliceChanges))
-	endpointslicemetrics.DesiredEndpointSlices.GaugeVec = promEndpointSliceChanges
+	endpointslicemetrics.EndpointsDesired.Create(&version)
+	endpointslicemetrics.EndpointsDesired.GaugeVec = (*prometheus.GaugeVec)(reflect.ValueOf(endpointsDesired).Elem().FieldByName("GaugeVec").UnsafePointer())
 
 	return Metrics{
 		TotalGlobalServices: metric.NewGaugeVec(metric.GaugeOpts{
@@ -113,15 +119,6 @@ func NewMetrics() Metrics {
 			},
 			[]string{},
 		),
-		EndpointsDesired: metric.NewGaugeVec(
-			metric.GaugeOpts{
-				ConfigName: metrics.Namespace + "_" + subsystem + "_endpoints_desired",
-				Subsystem:  subsystem,
-				Name:       "endpoints_desired",
-				Help:       "Number of endpoints desired",
-			},
-			[]string{},
-		),
 
 		// EndpointSlicesChangedPerSync observes the number of EndpointSlices
 		// changed per sync.
@@ -133,6 +130,15 @@ func NewMetrics() Metrics {
 				Help:       "Number of EndpointSlices changed on each Service sync",
 			},
 			[]string{},
+		),
+
+		EndpointSliceChanges: metric.NewCounterVec(
+			metric.CounterOpts{
+				ConfigName: metrics.Namespace + "_" + subsystem + "_endpoint_slice_changes",
+				Subsystem:  subsystem,
+				Help:       "Number of EndpointSlice changes",
+			},
+			[]string{"operation"},
 		),
 
 		// EndpointSliceSyncs tracks the number of sync operations the controller
@@ -149,6 +155,6 @@ func NewMetrics() Metrics {
 
 		NumEndpointSlices:     numEndpointSlices,
 		DesiredEndpointSlices: desiredEndpointSlices,
-		EndpointSliceChanges:  endpointSliceChanges,
+		EndpointsDesired:      endpointsDesired,
 	}
 }
