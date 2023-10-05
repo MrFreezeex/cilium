@@ -25,6 +25,7 @@ import (
 	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
+	"github.com/sirupsen/logrus"
 )
 
 // newEndpoint returns an Endpoint object generated from an address
@@ -65,7 +66,9 @@ func getEndpointPorts(service *v1.Service, portConfiguration serviceStore.PortCo
 		portProto := servicePort.Protocol
 		portNum, err := findPort(portConfiguration, servicePort)
 		if err != nil {
-			log.Info("Failed to find port for service", "service", klog.KObj(service), "err", err)
+			log.WithFields(
+				logrus.Fields{"service": klog.KObj(service), "err": err},
+			).Info("Failed to find port for service")
 			continue
 		}
 
@@ -195,7 +198,9 @@ func setEndpointSliceLabels(epSlice *discovery.EndpointSlice, service *v1.Servic
 
 	for key, value := range service.Labels {
 		if isReservedLabelKey(key) {
-			log.Info("Service using reserved endpoint slices label service ", klog.KObj(service), " skipping ", key, " label ", value)
+			log.WithFields(
+				logrus.Fields{"service": klog.KObj(service), "skipping": key, "label": value},
+			).Info("Service using reserved endpoint slices label service")
 			continue
 		}
 		// copy service labels
@@ -287,14 +292,20 @@ func getAddressTypesForService(service *v1.Service) sets.Set[discovery.AddressTy
 			addrType = discovery.AddressTypeIPv6
 		}
 		serviceSupportedAddresses.Insert(addrType)
-		log.Info("Couldn't find ipfamilies for service. This could happen if controller manager is connected to an old apiserver that does not support ip families yet. EndpointSlices for this Service will use addressType as the IP Family based on familyOf(ClusterIP).", "service", klog.KObj(service), "addressType", addrType, "clusterIP", service.Spec.ClusterIP)
+		log.WithFields(logrus.Fields{
+			"service":     klog.KObj(service),
+			"addressType": addrType,
+			"clusterIP":   service.Spec.ClusterIP,
+		}).Info("Couldn't find ipfamilies for service. This could happen if controller manager is connected to an old apiserver that does not support ip families yet. EndpointSlices for this Service will use addressType as the IP Family based on familyOf(ClusterIP).")
 		return serviceSupportedAddresses
 	}
 
 	// We assume two familised for headless services
 	serviceSupportedAddresses.Insert(discovery.AddressTypeIPv4)
 	serviceSupportedAddresses.Insert(discovery.AddressTypeIPv6)
-	log.Info("Couldn't find ipfamilies for headless service, likely because controller manager is likely connected to an old apiserver that does not support ip families yet. The service endpoint slice will use dual stack families until api-server default it correctly", "service", klog.KObj(service))
+	log.WithField(
+		"service", klog.KObj(service),
+	).Info("Couldn't find ipfamilies for headless service, likely because controller manager is likely connected to an old apiserver that does not support ip families yet. The service endpoint slice will use dual stack families until api-server default it correctly")
 	return serviceSupportedAddresses
 }
 
