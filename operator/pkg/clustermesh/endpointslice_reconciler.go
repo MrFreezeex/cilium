@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Cilium
+
+// Copyright 2019 The Kubernetes Authors.
+
+// Most of the logic here are extracted from Kubernetes endpointslice
+// controller/reconciler and adapted for Cilium clustermesh use case.
+
 package clustermesh
 
 import (
@@ -6,7 +14,6 @@ import (
 	"sort"
 	"time"
 
-	serviceStore "github.com/cilium/cilium/pkg/service/store"
 	corev1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -18,6 +25,8 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	endpointslicemetrics "k8s.io/endpointslice/metrics"
 	endpointsliceutil "k8s.io/endpointslice/util"
+
+	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
 // EndpointSliceReconciler is responsible for transforming current EndpointSlice state into

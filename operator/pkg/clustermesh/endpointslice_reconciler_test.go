@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Cilium
+
+// Copyright 2019 The Kubernetes Authors.
+
+// Most of the logic here are extracted from Kubernetes endpointslice
+// controller/reconciler and adapted for Cilium clustermesh use case.
+
 package clustermesh
 
 import (
@@ -8,9 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cilium/cilium/pkg/loadbalancer"
-	"github.com/cilium/cilium/pkg/metrics/metric"
-	serviceStore "github.com/cilium/cilium/pkg/service/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +35,10 @@ import (
 	endpointsliceutil "k8s.io/endpointslice/util"
 	"k8s.io/utils/pointer"
 	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+
+	"github.com/cilium/cilium/pkg/loadbalancer"
+	"github.com/cilium/cilium/pkg/metrics/metric"
+	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
 func expectAction(t *testing.T, actions []k8stesting.Action, index int, verb, resource string) {

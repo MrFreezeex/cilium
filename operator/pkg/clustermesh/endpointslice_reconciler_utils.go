@@ -1,10 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Cilium
+
+// Copyright 2019 The Kubernetes Authors.
+
+// Most of the logic here are extracted from Kubernetes endpointslice
+// controller/reconciler and adapted for Cilium clustermesh use case.
+
 package clustermesh
 
 import (
 	"fmt"
 	"time"
 
-	serviceStore "github.com/cilium/cilium/pkg/service/store"
 	v1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -16,6 +23,8 @@ import (
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
 	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+
+	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
 // newEndpoint returns an Endpoint object generated from an address

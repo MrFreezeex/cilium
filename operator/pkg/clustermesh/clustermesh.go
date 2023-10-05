@@ -8,6 +8,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	clustermesh "github.com/cilium/cilium/pkg/clustermesh"
 	"github.com/cilium/cilium/pkg/clustermesh/common"
 	"github.com/cilium/cilium/pkg/clustermesh/types"
@@ -18,7 +20,6 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
-	"github.com/spf13/pflag"
 )
 
 const subsystem = "operator-clustermesh"

@@ -8,11 +8,12 @@ import (
 
 	"github.com/blang/semver/v4"
 
+	"github.com/prometheus/client_golang/prometheus"
+	endpointslicemetrics "k8s.io/endpointslice/metrics"
+
 	"github.com/cilium/cilium/operator/metrics"
 	agentmetrics "github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
-	"github.com/prometheus/client_golang/prometheus"
-	endpointslicemetrics "k8s.io/endpointslice/metrics"
 )
 
 type Metrics struct {

@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Cilium
+
+// Copyright 2019 The Kubernetes Authors.
+
+// Most of the logic here are extracted from Kubernetes endpointslice
+// controller/reconciler and adapted for Cilium clustermesh use case.
+
 package clustermesh
 
 import (

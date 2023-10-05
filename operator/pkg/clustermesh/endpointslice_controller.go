@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Cilium
+
 package clustermesh
 
 import (
@@ -5,12 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cilium/cilium/pkg/k8s"
-	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
-	"github.com/cilium/cilium/pkg/k8s/informer"
-	"github.com/cilium/cilium/pkg/k8s/utils"
-	"github.com/cilium/cilium/pkg/logging/logfields"
-	serviceStore "github.com/cilium/cilium/pkg/service/store"
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -23,6 +20,13 @@ import (
 	endpointsliceutil "k8s.io/endpointslice/util"
 	endpointslicepkg "k8s.io/kubernetes/pkg/controller/util/endpointslice"
 	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+
+	"github.com/cilium/cilium/pkg/k8s"
+	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	"github.com/cilium/cilium/pkg/k8s/informer"
+	"github.com/cilium/cilium/pkg/k8s/utils"
+	"github.com/cilium/cilium/pkg/logging/logfields"
+	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
 const (
