@@ -186,7 +186,7 @@ func setEndpointSliceLabels(epSlice *discovery.EndpointSlice, service *v1.Servic
 
 	for key, value := range service.Labels {
 		if isReservedLabelKey(key) {
-			log.Info("Service using reserved endpoint slices label", "service", klog.KObj(service), "skipping", key, "label", value)
+			log.Info("Service using reserved endpoint slices label service ", klog.KObj(service), " skipping ", key, " label ", value)
 			continue
 		}
 		// copy service labels
@@ -217,7 +217,8 @@ func setEndpointSliceLabels(epSlice *discovery.EndpointSlice, service *v1.Servic
 func isReservedLabelKey(label string) bool {
 	if label == discovery.LabelServiceName ||
 		label == discovery.LabelManagedBy ||
-		label == v1.IsHeadlessService {
+		label == v1.IsHeadlessService ||
+		label == mcsapiv1alpha1.LabelSourceCluster {
 		return true
 	}
 	return false
