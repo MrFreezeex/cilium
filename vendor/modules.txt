@@ -1933,7 +1933,12 @@ k8s.io/component-base/metrics
 k8s.io/component-base/metrics/legacyregistry
 k8s.io/component-base/metrics/prometheus/feature
 k8s.io/component-base/metrics/prometheusextension
+k8s.io/component-base/metrics/testutil
 k8s.io/component-base/version
+# k8s.io/endpointslice v0.28.2
+## explicit; go 1.20
+k8s.io/endpointslice/metrics
+k8s.io/endpointslice/util
 # k8s.io/gengo v0.0.0-20230306165830-ab3349d207d4
 ## explicit; go 1.13
 k8s.io/gengo/args
@@ -1979,6 +1984,9 @@ k8s.io/kube-openapi/pkg/validation/spec
 k8s.io/kube-openapi/pkg/validation/strfmt
 k8s.io/kube-openapi/pkg/validation/strfmt/bson
 k8s.io/kube-openapi/pkg/validation/validate
+# k8s.io/kubernetes v1.28.2
+## explicit; go 1.20
+k8s.io/kubernetes/pkg/controller/util/endpointslice
 # k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
 ## explicit; go 1.18
 k8s.io/utils/buffer
@@ -2072,6 +2080,9 @@ sigs.k8s.io/gateway-api/conformance/utils/tls
 ## explicit; go 1.18
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
+# sigs.k8s.io/mcs-api v0.1.1-0.20230531192946-4231f56e5ff9
+## explicit; go 1.19
+sigs.k8s.io/mcs-api/pkg/apis/v1alpha1
 # sigs.k8s.io/structured-merge-diff/v4 v4.2.3
 ## explicit; go 1.13
 sigs.k8s.io/structured-merge-diff/v4/fieldpath

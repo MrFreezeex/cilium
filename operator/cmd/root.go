@@ -33,6 +33,7 @@ import (
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/operator/pkg/ciliumendpointslice"
 	"github.com/cilium/cilium/operator/pkg/ciliumenvoyconfig"
+	"github.com/cilium/cilium/operator/pkg/clustermesh"
 	gatewayapi "github.com/cilium/cilium/operator/pkg/gateway-api"
 	"github.com/cilium/cilium/operator/pkg/ingress"
 	"github.com/cilium/cilium/operator/pkg/lbipam"
@@ -181,6 +182,7 @@ var (
 			lbipam.Cell,
 			auth.Cell,
 			store.Cell,
+			clustermesh.Cell,
 			legacyCell,
 
 			// When running in kvstore mode, the start hook of the identity GC
