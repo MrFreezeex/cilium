@@ -58,7 +58,7 @@ func TestNewEndpointSlice(t *testing.T) {
 					Labels: map[string]string{
 						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:          controllerName,
+						discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -81,7 +81,7 @@ func TestNewEndpointSlice(t *testing.T) {
 					Labels: map[string]string{
 						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:          controllerName,
+						discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 						"foo":                             "bar",
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
@@ -106,7 +106,7 @@ func TestNewEndpointSlice(t *testing.T) {
 					Labels: map[string]string{
 						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:          controllerName,
+						discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 						v1.IsHeadlessService:              "",
 						"foo":                             "bar",
 					},
@@ -131,7 +131,7 @@ func TestNewEndpointSlice(t *testing.T) {
 					Labels: map[string]string{
 						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:          controllerName,
+						discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 						"foo":                             "bar",
 						"foo2":                            "bar2",
 					},
@@ -161,7 +161,7 @@ func TestNewEndpointSlice(t *testing.T) {
 					Labels: map[string]string{
 						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:          controllerName,
+						discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 						"foo":                             "bar",
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
@@ -185,7 +185,7 @@ func TestNewEndpointSlice(t *testing.T) {
 					Labels: map[string]string{
 						discovery.LabelServiceName:        service.Name,
 						mcsapiv1alpha1.LabelSourceCluster: clusterName,
-						discovery.LabelManagedBy:          controllerName,
+						discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 					},
 					GenerateName:    fmt.Sprintf("%s-%s-", service.Name, clusterName),
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
@@ -201,7 +201,7 @@ func TestNewEndpointSlice(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := tc.updateSvc(service)
-			generatedSlice := newEndpointSlice(&svc, &endpointMeta, clusterName, controllerName)
+			generatedSlice := newEndpointSlice(&svc, &endpointMeta, clusterName, utils.EndpointSliceMeshControllerName)
 			assert.EqualValues(t, tc.expectedSlice, generatedSlice)
 		})
 	}

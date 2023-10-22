@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	v1meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/cilium/cilium/pkg/ip"
@@ -23,6 +24,9 @@ const (
 	// ServiceProxyNameLabel is the label for service proxy name in k8s service related
 	// objects.
 	serviceProxyNameLabel = "service.kubernetes.io/service-proxy-name"
+	// EndpointSliceMeshControllerName is a unique value used with LabelManagedBy to indicate
+	// the component managing an EndpointSlice.
+	EndpointSliceMeshControllerName = "endpointslice-mesh-controller.cilium.io"
 )
 
 type NamespaceNameGetter interface {
@@ -82,20 +86,29 @@ type PolicyConfiguration interface {
 
 // GetEndpointSliceListOptionsModifier returns the options modifier for endpointSlice object list.
 // This methods returns a ListOptions modifier which adds a label selector to
-// select all endpointSlice objects that do not contain the k8s headless service label.
-// This is the same behavior as kube-proxy.
+// select all endpointSlice objects that do not contain the k8s headless service label and that they are not from
+// remote clusters in Cilium cluster mesh.
+// This is mostly the same behavior as kube-proxy (except the cluster mesh behavior which is
+// tied to how Cilium internally works with clustermesh endpoints).
 // Given label mirroring from the service objects to endpoint slice objects were introduced in Kubernetes PR 94443,
 // and released as part of Kubernetes v1.20; we can start using GetServiceAndEndpointListOptionsModifier for
 // endpoint slices when dropping support for Kubernetes v1.19 and older. We can do that since the
 // serviceProxyNameLabel label will then be mirrored to endpoint slices for services with that label.
+// We also ignore Kubernetes endpoints coming from other clusters in the Cilium clustermesh here as
+// Cilium does not rely on mirrored Kubernetes EndpointSlice for any of its functionalities.
 func GetEndpointSliceListOptionsModifier() (func(options *v1meta.ListOptions), error) {
 	nonHeadlessServiceSelector, err := labels.NewRequirement(v1.IsHeadlessService, selection.DoesNotExist, nil)
+	if err != nil {
+		return nil, err
+	}
+	nonRemoteEndpointSelector, err := labels.NewRequirement(discoveryv1.LabelManagedBy, selection.NotEquals, []string{EndpointSliceMeshControllerName})
 	if err != nil {
 		return nil, err
 	}
 
 	labelSelector := labels.NewSelector()
 	labelSelector = labelSelector.Add(*nonHeadlessServiceSelector)
+	labelSelector = labelSelector.Add(*nonRemoteEndpointSelector)
 
 	return func(options *v1meta.ListOptions) {
 		options.LabelSelector = labelSelector.String()

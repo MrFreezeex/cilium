@@ -36,6 +36,7 @@ import (
 	"k8s.io/utils/pointer"
 	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
 
+	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/metrics/metric"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
@@ -262,7 +263,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 			},
@@ -282,7 +283,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 				corev1.IsHeadlessService:          "",
@@ -312,7 +313,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 			},
@@ -341,7 +342,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 				"foo":                             "bar",
@@ -372,7 +373,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 				corev1.IsHeadlessService:          "",
@@ -394,7 +395,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 				corev1.IsHeadlessService:          "",
@@ -416,7 +417,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 			},
@@ -447,7 +448,7 @@ func TestReconcileSimple(t *testing.T) {
 				},
 			},
 			expectedLabels: map[string]string{
-				discovery.LabelManagedBy:          controllerName,
+				discovery.LabelManagedBy:          utils.EndpointSliceMeshControllerName,
 				mcsapiv1alpha1.LabelSourceCluster: defaultClusterName,
 				discovery.LabelServiceName:        "foo",
 			},
@@ -550,7 +551,7 @@ func TestReconcile1EndpointSlice(t *testing.T) {
 		},
 		{
 			desc:        "Existing placeholder that's the same",
-			existing:    newEndpointSlice(&svc, &endpointMeta{ports: []discovery.EndpointPort{}, addressType: discovery.AddressTypeIPv4}, defaultClusterName, controllerName),
+			existing:    newEndpointSlice(&svc, &endpointMeta{ports: []discovery.EndpointPort{}, addressType: discovery.AddressTypeIPv4}, defaultClusterName, utils.EndpointSliceMeshControllerName),
 			wantMetrics: expectedMetrics{desiredSlices: 1, actualSlices: 1, desiredEndpoints: 0, addedPerSync: 0, removedPerSync: 0, numCreated: 0, numUpdated: 0, numDeleted: 0, slicesChangedPerSync: 0},
 		},
 		{
@@ -1468,7 +1469,7 @@ func newReconciler(client *fake.Clientset, maxEndpointsPerSlice int) *EndpointSl
 		client,
 		maxEndpointsPerSlice,
 		&metrics,
-		controllerName,
+		utils.EndpointSliceMeshControllerName,
 	)
 }
 

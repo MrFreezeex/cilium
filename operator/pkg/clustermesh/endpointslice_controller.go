@@ -54,10 +54,6 @@ const (
 	defaultSyncBackOff = 1 * time.Second
 	// maxSyncBackOff is the max backoff period for syncService calls.
 	maxSyncBackOff = 1000 * time.Second
-
-	// controllerName is a unique value used with LabelManagedBy to indicated
-	// the component managing an EndpointSlice.
-	controllerName = "endpointslice-mesh-controller.cilium.io"
 )
 
 // event types
@@ -216,7 +212,7 @@ func NewEndpointSliceController(
 		c.clientset,
 		c.maxEndpointsPerSlice,
 		&c.cm.Metrics,
-		controllerName,
+		utils.EndpointSliceMeshControllerName,
 	)
 
 	return c
@@ -414,7 +410,7 @@ func (c *EndpointSliceController) getClustersForService(service *v1.Service) ([]
 			return nil, fmt.Errorf("invalid endpointSlice type")
 		}
 		if endpointSlice.Labels[discoveryv1.LabelServiceName] != service.Name ||
-			endpointSlice.Labels[discoveryv1.LabelManagedBy] != controllerName ||
+			endpointSlice.Labels[discoveryv1.LabelManagedBy] != utils.EndpointSliceMeshControllerName ||
 			endpointSlice.Labels[mcsapiv1alpha1.LabelSourceCluster] == "" {
 			continue
 		}
@@ -431,7 +427,7 @@ func (c *EndpointSliceController) listEndpointSlicesForServiceInCluster(service 
 			return nil, fmt.Errorf("invalid endpointSlice type")
 		}
 		if endpointSlice.Labels[discoveryv1.LabelServiceName] != service.Name ||
-			endpointSlice.Labels[discoveryv1.LabelManagedBy] != controllerName ||
+			endpointSlice.Labels[discoveryv1.LabelManagedBy] != utils.EndpointSliceMeshControllerName ||
 			endpointSlice.Labels[mcsapiv1alpha1.LabelSourceCluster] != cluster {
 			continue
 		}
@@ -445,7 +441,7 @@ func (c *EndpointSliceController) deleteRemoteEndpointSlicesForCluster(service *
 		context.Background(),
 		metav1.DeleteOptions{},
 		metav1.ListOptions{
-			LabelSelector: discoveryv1.LabelManagedBy + "=" + controllerName + "," +
+			LabelSelector: discoveryv1.LabelManagedBy + "=" + utils.EndpointSliceMeshControllerName + "," +
 				discoveryv1.LabelServiceName + "=" + service.Name + "," +
 				mcsapiv1alpha1.LabelSourceCluster + "=" + cluster,
 		},
@@ -457,7 +453,7 @@ func (c *EndpointSliceController) deleteRemoteEndpointSlices(service *v1.Service
 		context.Background(),
 		metav1.DeleteOptions{},
 		metav1.ListOptions{
-			LabelSelector: discoveryv1.LabelManagedBy + "=" + controllerName + "," +
+			LabelSelector: discoveryv1.LabelManagedBy + "=" + utils.EndpointSliceMeshControllerName + "," +
 				discoveryv1.LabelServiceName + "=" + service.Name,
 		},
 	)
