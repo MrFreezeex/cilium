@@ -62,6 +62,18 @@ Below example will expose remote endpoint without sharing local endpoints.
      selector:
        name: rebel-base
 
+Synchronizing Kubernetes EndpointSlice
+######################################
+
+By default Kubernetes EndpointSlice synchronization is disabled on Global services.
+If you want to be able to discover remote clusters endpoints of a Global Service
+from DNS or any third party controllers, you need to enable this behavior by adding
+the annotation ``service.cilium.io/global-sync-endpoint-slices: "true"``.
+
+Note that all the Cilium features do not need this enabled to function properly.
+For instance, the Cilium ingress controllers works in clustermesh
+without enabling this feature, although if you use any other ingress controller
+you may need to enable this.
 
 Deploying a Simple Example Service
 ==================================
