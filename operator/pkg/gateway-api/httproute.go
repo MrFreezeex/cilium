@@ -18,14 +18,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
+	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+	mcsapicontrollers "sigs.k8s.io/mcs-api/pkg/controllers"
 
 	"github.com/cilium/cilium/operator/pkg/gateway-api/helpers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 )
 
 const (
-	backendServiceIndex = "backendServiceIndex"
-	gatewayIndex        = "gatewayIndex"
+	backendServiceIndex       = "backendServiceIndex"
+	backendServiceImportIndex = "backendServiceImportIndex"
+	gatewayIndex              = "gatewayIndex"
 )
 
 // httpRouteReconciler reconciles a HTTPRoute object
@@ -58,7 +61,61 @@ func (r *httpRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					)
 				}
 			}
+			for _, rule := range hr.Spec.Rules {
+				for _, backend := range rule.BackendRefs {
+					if !helpers.IsServiceImport(backend.BackendObjectReference) {
+						continue
+					}
+					svcImport := &mcsapiv1alpha1.ServiceImport{}
+					if err := r.Client.Get(context.Background(), client.ObjectKey{
+						Namespace: helpers.NamespaceDerefOr(backend.Namespace, hr.Namespace),
+						Name:      string(backend.Name),
+					}, svcImport); err != nil {
+						continue
+					}
+
+					// ServiceImport gateway api support is conditioned by the fact
+					// that an actual Service backs it. Other implementations of MCS API
+					// are not supported.
+					svcName := svcImport.Annotations[mcsapicontrollers.DerivedServiceAnnotation]
+					if !ok {
+						continue
+					}
+					backendServices = append(backendServices,
+						types.NamespacedName{
+							Namespace: helpers.NamespaceDerefOr(backend.Namespace, hr.Namespace),
+							Name:      svcName,
+						}.String(),
+					)
+				}
+			}
 			return backendServices
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &gatewayv1beta1.HTTPRoute{}, backendServiceImportIndex,
+		func(rawObj client.Object) []string {
+			hr, ok := rawObj.(*gatewayv1beta1.HTTPRoute)
+			if !ok {
+				return nil
+			}
+			var backendServiceImports []string
+			for _, rule := range hr.Spec.Rules {
+				for _, backend := range rule.BackendRefs {
+					if !helpers.IsServiceImport(backend.BackendObjectReference) {
+						continue
+					}
+					backendServiceImports = append(backendServiceImports,
+						types.NamespacedName{
+							Namespace: helpers.NamespaceDerefOr(backend.Namespace, hr.Namespace),
+							Name:      string(backend.Name),
+						}.String(),
+					)
+				}
+			}
+			return backendServiceImports
 		},
 	); err != nil {
 		return err
@@ -90,6 +147,8 @@ func (r *httpRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&gatewayv1beta1.HTTPRoute{}).
 		// Watch for changes to Backend services
 		Watches(&corev1.Service{}, r.enqueueRequestForBackendService()).
+		// Watch for changes to Backend Service Imports
+		Watches(&mcsapiv1alpha1.ServiceImport{}, r.enqueueRequestForBackendServiceImport()).
 		// Watch for changes to Reference Grants
 		Watches(&gatewayv1beta1.ReferenceGrant{}, r.enqueueRequestForRequestGrant()).
 		// Watch for changes to Gateways and enqueue HTTPRoutes that reference them,
@@ -103,6 +162,12 @@ func (r *httpRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // if the backend services are updated.
 func (r *httpRouteReconciler) enqueueRequestForBackendService() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(r.enqueueFromIndex(backendServiceIndex))
+}
+
+// enqueueRequestForBackendServiceImport makes sure that HTTP Routes are reconciled
+// if the backend Service Imports are updated.
+func (r *httpRouteReconciler) enqueueRequestForBackendServiceImport() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(r.enqueueFromIndex(backendServiceImportIndex))
 }
 
 // enqueueRequestForRequestGrant makes sure that HTTP Routes in the same namespace are reconciled

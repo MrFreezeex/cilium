@@ -9,6 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
+	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+	mcsapicontrollers "sigs.k8s.io/mcs-api/pkg/controllers"
 
 	"github.com/cilium/cilium/operator/pkg/gateway-api/helpers"
 	"github.com/cilium/cilium/operator/pkg/model"
@@ -26,6 +28,7 @@ type Input struct {
 	TLSRoutes       []gatewayv1alpha2.TLSRoute
 	ReferenceGrants []gatewayv1beta1.ReferenceGrant
 	Services        []corev1.Service
+	ServiceImports  []mcsapiv1alpha1.ServiceImport
 }
 
 // GatewayAPI translates Gateway API resources into a model.
@@ -72,7 +75,31 @@ func GatewayAPI(input Input) ([]model.HTTPListener, []model.TLSListener) {
 					if !helpers.IsBackendReferenceAllowed(r.GetNamespace(), be.BackendRef, gatewayv1beta1.SchemeGroupVersion.WithKind("HTTPRoute"), input.ReferenceGrants) {
 						continue
 					}
-					if (be.Kind != nil && *be.Kind != "Service") || (be.Group != nil && *be.Group != corev1.GroupName) {
+
+					if helpers.IsService(be.BackendObjectReference) {
+						if !serviceExists(string(be.Name), helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.Services) {
+							continue
+						}
+					} else if helpers.IsServiceImport(be.BackendObjectReference) {
+						svcImport := getServiceImport(string(be.Name), helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.ServiceImports)
+						if svcImport == nil {
+							continue
+						}
+
+						// ServiceImport gateway api support is conditioned by the fact
+						// that an actual Service backs it. Other implementations of MCS API
+						// are not supported.
+						svcName, ok := svcImport.Annotations[mcsapicontrollers.DerivedServiceAnnotation]
+						if !ok || !serviceExists(svcName, helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.Services) {
+							continue
+						}
+						be = *be.DeepCopy()
+						be.BackendRef.BackendObjectReference = gatewayv1beta1.BackendObjectReference{
+							Name:      gatewayv1beta1.ObjectName(svcName),
+							Port:      be.Port,
+							Namespace: be.Namespace,
+						}
+					} else {
 						continue
 					}
 					if be.BackendRef.Port == nil {
@@ -198,12 +225,41 @@ func GatewayAPI(input Input) ([]model.HTTPListener, []model.TLSListener) {
 					if !helpers.IsBackendReferenceAllowed(r.GetNamespace(), be, gatewayv1alpha2.SchemeGroupVersion.WithKind("TLSRoute"), input.ReferenceGrants) {
 						continue
 					}
-					if (be.Kind != nil && *be.Kind != "Service") || (be.Group != nil && *be.Group != corev1.GroupName) {
+					if helpers.IsService(be.BackendObjectReference) {
+						if !serviceExists(string(be.Name), helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.Services) {
+							continue
+						}
+					} else if helpers.IsServiceImport(be.BackendObjectReference) {
+						svcImport := getServiceImport(string(be.Name), helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.ServiceImports)
+						if svcImport == nil {
+							continue
+						}
+						// ServiceImport gateway api support is conditioned by the fact
+						// that an actual Service backs it. Other implementations of MCS API
+						// are not supported.
+						svcName, ok := svcImport.Annotations[mcsapicontrollers.DerivedServiceAnnotation]
+						if !ok || !serviceExists(svcName, helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.Services) {
+							continue
+						}
+						be = *be.DeepCopy()
+						be.BackendObjectReference = gatewayv1beta1.BackendObjectReference{
+							Name:      gatewayv1beta1.ObjectName(svcName),
+							Port:      be.Port,
+							Namespace: be.Namespace,
+						}
+					} else {
+						continue
+					}
+
+					if be.Port == nil {
+						// must have port for Service reference
 						continue
 					}
 					if serviceExists(string(be.Name), helpers.NamespaceDerefOr(be.Namespace, r.Namespace), input.Services) {
 						bes = append(bes, backendToModelBackend(be, r.Namespace))
 					}
+
+					bes = append(bes, backendToModelBackend(be, r.Namespace))
 				}
 
 				tlsRoutes = append(tlsRoutes, model.TLSRoute{
@@ -307,6 +363,15 @@ func serviceExists(svcName, svcNamespace string, services []corev1.Service) bool
 		}
 	}
 	return false
+}
+
+func getServiceImport(svcName, svcNamespace string, serviceImports []mcsapiv1alpha1.ServiceImport) *mcsapiv1alpha1.ServiceImport {
+	for _, svc := range serviceImports {
+		if svc.GetName() == svcName && svc.GetNamespace() == svcNamespace {
+			return &svc
+		}
+	}
+	return nil
 }
 
 func backendToModelBackend(be gatewayv1beta1.BackendRef, defaultNamespace string) model.Backend {

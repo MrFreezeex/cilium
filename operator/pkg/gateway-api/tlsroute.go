@@ -19,6 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
+	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+	mcsapicontrollers "sigs.k8s.io/mcs-api/pkg/controllers"
 
 	"github.com/cilium/cilium/operator/pkg/gateway-api/helpers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -54,7 +56,61 @@ func (r *tlsRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					)
 				}
 			}
+			for _, rule := range hr.Spec.Rules {
+				for _, backend := range rule.BackendRefs {
+					if !helpers.IsServiceImport(backend.BackendObjectReference) {
+						continue
+					}
+					svcImport := &mcsapiv1alpha1.ServiceImport{}
+					if err := r.Client.Get(context.Background(), client.ObjectKey{
+						Namespace: helpers.NamespaceDerefOr(backend.Namespace, hr.Namespace),
+						Name:      string(backend.Name),
+					}, svcImport); err != nil {
+						continue
+					}
+
+					// ServiceImport gateway api support is conditioned by the fact
+					// that an actual Service backs it. Other implementations of MCS API
+					// are not supported.
+					svcName, ok := svcImport.Annotations[mcsapicontrollers.DerivedServiceAnnotation]
+					if !ok {
+						continue
+					}
+					backendServices = append(backendServices,
+						types.NamespacedName{
+							Namespace: helpers.NamespaceDerefOr(backend.Namespace, hr.Namespace),
+							Name:      svcName,
+						}.String(),
+					)
+				}
+			}
 			return backendServices
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &gatewayv1alpha2.TLSRoute{}, backendServiceImportIndex,
+		func(rawObj client.Object) []string {
+			hr, ok := rawObj.(*gatewayv1alpha2.TLSRoute)
+			if !ok {
+				return nil
+			}
+			var backendServiceImports []string
+			for _, rule := range hr.Spec.Rules {
+				for _, backend := range rule.BackendRefs {
+					if !helpers.IsServiceImport(backend.BackendObjectReference) {
+						continue
+					}
+					backendServiceImports = append(backendServiceImports,
+						types.NamespacedName{
+							Namespace: helpers.NamespaceDerefOr(backend.Namespace, hr.Namespace),
+							Name:      string(backend.Name),
+						}.String(),
+					)
+				}
+			}
+			return backendServiceImports
 		},
 	); err != nil {
 		return err
@@ -86,6 +142,8 @@ func (r *tlsRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&gatewayv1alpha2.TLSRoute{}).
 		// Watch for changes to Backend services
 		Watches(&corev1.Service{}, r.enqueueRequestForBackendService()).
+		// Watch for changes to Backend Service Imports
+		Watches(&mcsapiv1alpha1.ServiceImport{}, r.enqueueRequestForBackendServiceImport()).
 		// Watch for changes to Gateways and enqueue TLSRoutes that reference them
 		Watches(&gatewayv1beta1.Gateway{}, r.enqueueRequestForGateway()).
 		// Watch for changes to Gateways and enqueue TLSRoutes that reference them,
@@ -100,6 +158,12 @@ func (r *tlsRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // if the backend services are updated.
 func (r *tlsRouteReconciler) enqueueRequestForBackendService() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(r.enqueueFromIndex(backendServiceIndex))
+}
+
+// enqueueRequestForBackendServiceImport makes sure that TLS Routes are reconciled
+// if the backend Service Imports are updated.
+func (r *tlsRouteReconciler) enqueueRequestForBackendServiceImport() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(r.enqueueFromIndex(backendServiceImportIndex))
 }
 
 func (r *tlsRouteReconciler) enqueueRequestForGateway() handler.EventHandler {

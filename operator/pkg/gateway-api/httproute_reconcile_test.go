@@ -16,6 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
+	mcsapiv1alpha1 "sigs.k8s.io/mcs-api/pkg/apis/v1alpha1"
+	mcsapicontrollers "sigs.k8s.io/mcs-api/pkg/controllers"
 
 	"github.com/cilium/cilium/operator/pkg/model"
 )
@@ -83,6 +85,15 @@ var (
 				Namespace: "default",
 			},
 		},
+		&mcsapiv1alpha1.ServiceImport{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dummy-backend",
+				Namespace: "default",
+				Annotations: map[string]string{
+					mcsapicontrollers.DerivedServiceAnnotation: "dummy-backend",
+				},
+			},
+		},
 
 		// Service in another namespace
 		&corev1.Service{
@@ -91,12 +102,47 @@ var (
 				Namespace: "another-namespace",
 			},
 		},
+		&mcsapiv1alpha1.ServiceImport{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dummy-backend",
+				Namespace: "another-namespace",
+				Annotations: map[string]string{
+					mcsapicontrollers.DerivedServiceAnnotation: "dummy-backend",
+				},
+			},
+		},
 
 		// Service for reference grant in another namespace
 		&corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dummy-backend-grant",
 				Namespace: "another-namespace",
+			},
+		},
+		&mcsapiv1alpha1.ServiceImport{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dummy-backend-grant",
+				Namespace: "another-namespace",
+				Annotations: map[string]string{
+					mcsapicontrollers.DerivedServiceAnnotation: "dummy-backend-grant",
+				},
+			},
+		},
+
+		// ServiceImport with Service that doesn't exists
+		&mcsapiv1alpha1.ServiceImport{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dummy-backend-no-svc",
+				Namespace: "default",
+				Annotations: map[string]string{
+					mcsapicontrollers.DerivedServiceAnnotation: "nonexistent-derived-svc",
+				},
+			},
+		},
+		&mcsapiv1alpha1.ServiceImport{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "dummy-backend-no-svc-annotation",
+				Namespace: "default",
 			},
 		},
 
@@ -136,6 +182,16 @@ var (
 									},
 								},
 							},
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group: GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:  KindPtr("ServiceImport"),
+										Name:  "dummy-backend",
+										Port:  model.AddressOf[gatewayv1beta1.PortNumber](8080),
+									},
+								},
+							},
 						},
 					},
 				},
@@ -145,7 +201,7 @@ var (
 		// HTTPRoute with nonexistent backend
 		&gatewayv1beta1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "http-route-with-nonexistent-backend",
+				Name:      "http-route-with-nonexistent-svc",
 				Namespace: "default",
 			},
 			Spec: gatewayv1beta1.HTTPRouteSpec{
@@ -172,11 +228,104 @@ var (
 				},
 			},
 		},
+		&gatewayv1beta1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "http-route-with-nonexistent-svcimport",
+				Namespace: "default",
+			},
+			Spec: gatewayv1beta1.HTTPRouteSpec{
+				CommonRouteSpec: gatewayv1beta1.CommonRouteSpec{
+					ParentRefs: []gatewayv1beta1.ParentReference{
+						{
+							Name: "dummy-gateway",
+						},
+					},
+				},
+				Rules: []gatewayv1beta1.HTTPRouteRule{
+					{
+						BackendRefs: []gatewayv1beta1.HTTPBackendRef{
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group: GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:  KindPtr("ServiceImport"),
+										Name:  "nonexistent-backend",
+										Port:  model.AddressOf[gatewayv1beta1.PortNumber](8080),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		&gatewayv1beta1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "http-route-with-nonexistent-svcimport-svc",
+				Namespace: "default",
+			},
+			Spec: gatewayv1beta1.HTTPRouteSpec{
+				CommonRouteSpec: gatewayv1beta1.CommonRouteSpec{
+					ParentRefs: []gatewayv1beta1.ParentReference{
+						{
+							Name: "dummy-gateway",
+						},
+					},
+				},
+				Rules: []gatewayv1beta1.HTTPRouteRule{
+					{
+						BackendRefs: []gatewayv1beta1.HTTPBackendRef{
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group: GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:  KindPtr("ServiceImport"),
+										Name:  "dummy-backend-no-svc",
+										Port:  model.AddressOf[gatewayv1beta1.PortNumber](8080),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		&gatewayv1beta1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "http-route-with-nonexistent-svcimport-svc-annotation",
+				Namespace: "default",
+			},
+			Spec: gatewayv1beta1.HTTPRouteSpec{
+				CommonRouteSpec: gatewayv1beta1.CommonRouteSpec{
+					ParentRefs: []gatewayv1beta1.ParentReference{
+						{
+							Name: "dummy-gateway",
+						},
+					},
+				},
+				Rules: []gatewayv1beta1.HTTPRouteRule{
+					{
+						BackendRefs: []gatewayv1beta1.HTTPBackendRef{
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group: GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:  KindPtr("ServiceImport"),
+										Name:  "dummy-backend-no-svc-annotation",
+										Port:  model.AddressOf[gatewayv1beta1.PortNumber](8080),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 
 		// HTTPRoute with cross namespace backend
 		&gatewayv1beta1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "http-route-with-cross-namespace-backend",
+				Name:      "http-route-with-cross-namespace-service",
 				Namespace: "default",
 			},
 			Spec: gatewayv1beta1.HTTPRouteSpec{
@@ -195,6 +344,38 @@ var (
 									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
 										Name:      "dummy-backend",
 										Namespace: model.AddressOf[gatewayv1beta1.Namespace]("another-namespace"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		&gatewayv1beta1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "http-route-with-cross-namespace-serviceimport",
+				Namespace: "default",
+			},
+			Spec: gatewayv1beta1.HTTPRouteSpec{
+				CommonRouteSpec: gatewayv1beta1.CommonRouteSpec{
+					ParentRefs: []gatewayv1beta1.ParentReference{
+						{
+							Name: "dummy-gateway",
+						},
+					},
+				},
+				Rules: []gatewayv1beta1.HTTPRouteRule{
+					{
+						BackendRefs: []gatewayv1beta1.HTTPBackendRef{
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group:     GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:      KindPtr("ServiceImport"),
+										Name:      "dummy-backend",
+										Namespace: model.AddressOf[gatewayv1beta1.Namespace]("another-namespace"),
+										Port:      model.AddressOf[gatewayv1beta1.PortNumber](8080),
 									},
 								},
 							},
@@ -230,6 +411,17 @@ var (
 									},
 								},
 							},
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group:     GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:      KindPtr("ServiceImport"),
+										Name:      "dummy-backend-grant",
+										Namespace: model.AddressOf[gatewayv1beta1.Namespace]("another-namespace"),
+										Port:      model.AddressOf[gatewayv1beta1.PortNumber](8080),
+									},
+								},
+							},
 						},
 					},
 				},
@@ -254,6 +446,28 @@ var (
 					{
 						Group: "",
 						Kind:  "Service",
+						Name:  ObjectNamePtr("dummy-backend-grant"),
+					},
+				},
+			},
+		},
+		&gatewayv1beta1.ReferenceGrant{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "allow-service-import-from-default",
+				Namespace: "another-namespace",
+			},
+			Spec: gatewayv1beta1.ReferenceGrantSpec{
+				From: []gatewayv1beta1.ReferenceGrantFrom{
+					{
+						Group:     "gateway.networking.k8s.io",
+						Kind:      "HTTPRoute",
+						Namespace: "default",
+					},
+				},
+				To: []gatewayv1beta1.ReferenceGrantTo{
+					{
+						Group: mcsapiv1alpha1.GroupName,
+						Kind:  "ServiceImport",
 						Name:  ObjectNamePtr("dummy-backend-grant"),
 					},
 				},
@@ -291,10 +505,10 @@ var (
 				},
 			},
 		},
-		// HTTPRoute missing port for backend Service
+		// HTTPRoute missing port for Service and ServiceImport
 		&gatewayv1beta1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "http-route-missing-port-for-backend-Service",
+				Name:      "http-route-missing-port-for-backend-service",
 				Namespace: "default",
 			},
 			Spec: gatewayv1beta1.HTTPRouteSpec{
@@ -314,6 +528,36 @@ var (
 										Name:  "missing-port-service-backend",
 										Group: GroupPtr(""),
 										Kind:  KindPtr("Service"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		&gatewayv1beta1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "http-route-missing-port-for-backend-serviceimport",
+				Namespace: "default",
+			},
+			Spec: gatewayv1beta1.HTTPRouteSpec{
+				CommonRouteSpec: gatewayv1beta1.CommonRouteSpec{
+					ParentRefs: []gatewayv1beta1.ParentReference{
+						{
+							Name: "dummy-gateway",
+						},
+					},
+				},
+				Rules: []gatewayv1beta1.HTTPRouteRule{
+					{
+						BackendRefs: []gatewayv1beta1.HTTPBackendRef{
+							{
+								BackendRef: gatewayv1beta1.BackendRef{
+									BackendObjectReference: gatewayv1beta1.BackendObjectReference{
+										Group: GroupPtr(mcsapiv1alpha1.GroupName),
+										Kind:  KindPtr("ServiceImport"),
+										Name:  "missing-port-service-backend",
 									},
 								},
 							},
@@ -481,29 +725,31 @@ func Test_httpRouteReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("http route with nonexistent backend", func(t *testing.T) {
-		key := types.NamespacedName{
-			Name:      "http-route-with-nonexistent-backend",
-			Namespace: "default",
+		for _, name := range []string{"svc", "svcimport", "svcimport-svc", "svcimport-svc-annotation"} {
+			key := types.NamespacedName{
+				Name:      "http-route-with-nonexistent-" + name,
+				Namespace: "default",
+			}
+			result, err := r.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: key,
+			})
+
+			require.NoError(t, err, "Error reconciling httpRoute")
+			require.Equal(t, ctrl.Result{}, result, "Result should be empty")
+
+			route := &gatewayv1beta1.HTTPRoute{}
+			err = c.Get(context.Background(), key, route)
+
+			require.NoError(t, err)
+			require.Len(t, route.Status.RouteStatus.Parents, 1, "Should have 1 parent")
+			require.Len(t, route.Status.RouteStatus.Parents[0].Conditions, 2)
+
+			require.Equal(t, "Accepted", route.Status.RouteStatus.Parents[0].Conditions[0].Type)
+			require.Equal(t, metav1.ConditionStatus("True"), route.Status.RouteStatus.Parents[0].Conditions[0].Status)
+
+			require.Equal(t, "ResolvedRefs", route.Status.RouteStatus.Parents[0].Conditions[1].Type)
+			require.Equal(t, "BackendNotFound", route.Status.RouteStatus.Parents[0].Conditions[1].Reason)
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
-			NamespacedName: key,
-		})
-
-		require.NoError(t, err, "Error reconciling httpRoute")
-		require.Equal(t, ctrl.Result{}, result, "Result should be empty")
-
-		route := &gatewayv1beta1.HTTPRoute{}
-		err = c.Get(context.Background(), key, route)
-
-		require.NoError(t, err)
-		require.Len(t, route.Status.RouteStatus.Parents, 1, "Should have 1 parent")
-		require.Len(t, route.Status.RouteStatus.Parents[0].Conditions, 2)
-
-		require.Equal(t, "Accepted", route.Status.RouteStatus.Parents[0].Conditions[0].Type)
-		require.Equal(t, metav1.ConditionStatus("True"), route.Status.RouteStatus.Parents[0].Conditions[0].Status)
-
-		require.Equal(t, "ResolvedRefs", route.Status.RouteStatus.Parents[0].Conditions[1].Type)
-		require.Equal(t, "BackendNotFound", route.Status.RouteStatus.Parents[0].Conditions[1].Reason)
 
 	})
 
@@ -591,31 +837,33 @@ func Test_httpRouteReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("http route with cross namespace backend", func(t *testing.T) {
-		key := types.NamespacedName{
-			Name:      "http-route-with-cross-namespace-backend",
-			Namespace: "default",
+		for _, name := range []string{"service", "serviceimport"} {
+			key := types.NamespacedName{
+				Name:      "http-route-with-cross-namespace-" + name,
+				Namespace: "default",
+			}
+			result, err := r.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: key,
+			})
+
+			require.NoError(t, err, "Error reconciling httpRoute")
+			require.Equal(t, ctrl.Result{}, result, "Result should be empty")
+
+			route := &gatewayv1beta1.HTTPRoute{}
+			err = c.Get(context.Background(), key, route)
+
+			require.NoError(t, err)
+			require.Len(t, route.Status.RouteStatus.Parents, 1, "Should have 1 parent")
+			require.Len(t, route.Status.RouteStatus.Parents[0].Conditions, 2)
+
+			require.Equal(t, "Accepted", route.Status.RouteStatus.Parents[0].Conditions[0].Type)
+			require.Equal(t, metav1.ConditionStatus("True"), route.Status.RouteStatus.Parents[0].Conditions[0].Status)
+
+			require.Equal(t, "ResolvedRefs", route.Status.RouteStatus.Parents[0].Conditions[1].Type)
+			require.Equal(t, metav1.ConditionStatus("False"), route.Status.RouteStatus.Parents[0].Conditions[1].Status)
+			require.Equal(t, "RefNotPermitted", route.Status.RouteStatus.Parents[0].Conditions[1].Reason)
+			require.Equal(t, "Cross namespace references are not allowed", route.Status.RouteStatus.Parents[0].Conditions[1].Message)
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
-			NamespacedName: key,
-		})
-
-		require.NoError(t, err, "Error reconciling httpRoute")
-		require.Equal(t, ctrl.Result{}, result, "Result should be empty")
-
-		route := &gatewayv1beta1.HTTPRoute{}
-		err = c.Get(context.Background(), key, route)
-
-		require.NoError(t, err)
-		require.Len(t, route.Status.RouteStatus.Parents, 1, "Should have 1 parent")
-		require.Len(t, route.Status.RouteStatus.Parents[0].Conditions, 2)
-
-		require.Equal(t, "Accepted", route.Status.RouteStatus.Parents[0].Conditions[0].Type)
-		require.Equal(t, metav1.ConditionStatus("True"), route.Status.RouteStatus.Parents[0].Conditions[0].Status)
-
-		require.Equal(t, "ResolvedRefs", route.Status.RouteStatus.Parents[0].Conditions[1].Type)
-		require.Equal(t, metav1.ConditionStatus("False"), route.Status.RouteStatus.Parents[0].Conditions[1].Status)
-		require.Equal(t, "RefNotPermitted", route.Status.RouteStatus.Parents[0].Conditions[1].Reason)
-		require.Equal(t, "Cross namespace references are not allowed", route.Status.RouteStatus.Parents[0].Conditions[1].Message)
 	})
 
 	t.Run("http route with cross namespace backend with reference grant", func(t *testing.T) {
@@ -673,30 +921,32 @@ func Test_httpRouteReconciler_Reconcile(t *testing.T) {
 	})
 
 	t.Run("http route missing port of Service backend", func(t *testing.T) {
-		key := types.NamespacedName{
-			Name:      "http-route-missing-port-for-backend-Service",
-			Namespace: "default",
+		for _, name := range []string{"service", "serviceimport"} {
+			key := types.NamespacedName{
+				Name:      "http-route-missing-port-for-backend-" + name,
+				Namespace: "default",
+			}
+			result, err := r.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: key,
+			})
+
+			require.NoError(t, err, "Error reconciling httpRoute")
+			require.Equal(t, ctrl.Result{}, result, "Result should be empty")
+
+			route := &gatewayv1beta1.HTTPRoute{}
+			err = c.Get(context.Background(), key, route)
+
+			require.NoError(t, err)
+			require.Len(t, route.Status.RouteStatus.Parents, 1, "Should have 1 parent")
+			require.Len(t, route.Status.RouteStatus.Parents[0].Conditions, 2)
+
+			require.Equal(t, "Accepted", route.Status.RouteStatus.Parents[0].Conditions[0].Type)
+			require.Equal(t, metav1.ConditionStatus("True"), route.Status.RouteStatus.Parents[0].Conditions[0].Status)
+
+			require.Equal(t, "ResolvedRefs", route.Status.RouteStatus.Parents[0].Conditions[1].Type)
+			require.Equal(t, metav1.ConditionStatus("False"), route.Status.RouteStatus.Parents[0].Conditions[1].Status)
+			require.Equal(t, "InvalidKind", route.Status.RouteStatus.Parents[0].Conditions[1].Reason)
+			require.Equal(t, "Must have port for backend object reference", route.Status.RouteStatus.Parents[0].Conditions[1].Message)
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
-			NamespacedName: key,
-		})
-
-		require.NoError(t, err, "Error reconciling httpRoute")
-		require.Equal(t, ctrl.Result{}, result, "Result should be empty")
-
-		route := &gatewayv1beta1.HTTPRoute{}
-		err = c.Get(context.Background(), key, route)
-
-		require.NoError(t, err)
-		require.Len(t, route.Status.RouteStatus.Parents, 1, "Should have 1 parent")
-		require.Len(t, route.Status.RouteStatus.Parents[0].Conditions, 2)
-
-		require.Equal(t, "Accepted", route.Status.RouteStatus.Parents[0].Conditions[0].Type)
-		require.Equal(t, metav1.ConditionStatus("True"), route.Status.RouteStatus.Parents[0].Conditions[0].Status)
-
-		require.Equal(t, "ResolvedRefs", route.Status.RouteStatus.Parents[0].Conditions[1].Type)
-		require.Equal(t, metav1.ConditionStatus("False"), route.Status.RouteStatus.Parents[0].Conditions[1].Status)
-		require.Equal(t, "InvalidKind", route.Status.RouteStatus.Parents[0].Conditions[1].Reason)
-		require.Equal(t, "Must have port for Service reference", route.Status.RouteStatus.Parents[0].Conditions[1].Message)
 	})
 }

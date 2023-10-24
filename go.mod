@@ -121,6 +121,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.16.1
 	sigs.k8s.io/controller-tools v0.13.0
 	sigs.k8s.io/gateway-api v0.8.1
+	sigs.k8s.io/mcs-api v0.1.1-0.20230531192946-4231f56e5ff9
 	sigs.k8s.io/yaml v1.3.0
 )
 
