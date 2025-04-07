@@ -255,13 +255,7 @@ var (
 	}
 )
 
-func getEndpointSliceFromList(name string, epsliceList discoveryv1.EndpointSliceList) *discoveryv1.EndpointSlice {
-	for _, epSlice := range epsliceList.Items {
-		if epSlice.Name == name {
-			return &epSlice
-		}
-	}
-	return nil
+func getEndpointSlice(key types.NamespacedName) (error, *discoveryv1.EndpointSlice) {
 }
 
 func Test_mcsEndpointSliceMirror_Reconcile(t *testing.T) {
@@ -275,33 +269,21 @@ func Test_mcsEndpointSliceMirror_Reconcile(t *testing.T) {
 		clusterName: "cluster1",
 	}
 
-	key := types.NamespacedName{
-		Name:      "full",
-		Namespace: "default",
-	}
-	result, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: key,
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, ctrl.Result{}, result, "Result should be empty")
-	serviceReq, _ := labels.NewRequirement(mcsapiv1alpha1.LabelServiceName, selection.Equals, []string{"full"})
-	controllerReq, _ := labels.NewRequirement(discoveryv1.LabelManagedBy, selection.Equals, []string{endpointSliceLocalMCSAPIControllerName})
-
-	selector := labels.NewSelector()
-	selector = selector.Add(*serviceReq)
-	selector = selector.Add(*controllerReq)
-
-	var epSliceList discoveryv1.EndpointSliceList
-	err = r.List(context.Background(), &epSliceList, &client.ListOptions{LabelSelector: selector})
-	require.NoError(t, err)
-
-	require.Len(t, epSliceList.Items, 7)
-
 	for _, suffix := range []string{"keep", "update-1", "update-2", "update-3", "update-4", "update-5"} {
 		t.Run(fmt.Sprintf("Check mirrored Endpoint %s", suffix), func(t *testing.T) {
-			epSlice := getEndpointSliceFromList(commonDerivedName+"-"+suffix, epSliceList)
+			key := types.NamespacedName{
+				Name:      commonDerivedName + "-" + suffix,
+				Namespace: "default",
+			}
+			result, err := r.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: key,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, ctrl.Result{}, result, "Result should be empty")
+			epSlice, err := getEndpointSlice(key)
 			require.NotNil(t, epSlice)
+			require.NoError(t, err)
 			require.Equal(t, commonOwnerReferences, epSlice.OwnerReferences)
 			require.Equal(t, commonLabels, epSlice.Labels)
 			require.Len(t, epSlice.Annotations, 0)
@@ -315,4 +297,16 @@ func Test_mcsEndpointSliceMirror_Reconcile(t *testing.T) {
 		epSlice := getEndpointSliceFromList(commonDerivedName+"-um-dolor-sit-amet-consectetur-adipiscing", epSliceList)
 		require.NotNil(t, epSlice)
 	})
+
+	serviceReq, _ := labels.NewRequirement(mcsapiv1alpha1.LabelServiceName, selection.Equals, []string{"full"})
+	controllerReq, _ := labels.NewRequirement(discoveryv1.LabelManagedBy, selection.Equals, []string{endpointSliceLocalMCSAPIControllerName})
+
+	selector := labels.NewSelector()
+	selector = selector.Add(*serviceReq)
+	selector = selector.Add(*controllerReq)
+	var epSliceList discoveryv1.EndpointSliceList
+	err := r.List(context.Background(), &epSliceList, &client.ListOptions{LabelSelector: selector})
+	require.NoError(t, err)
+
+	require.Len(t, epSliceList.Items, 7)
 }
