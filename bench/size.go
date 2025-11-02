@@ -27,15 +27,14 @@ func getIP(i int) net.IP {
 	return net.IPv4(10, byte(i/256/256), byte(i/256%256), byte(i%256))
 }
 
-func getEndpoints(backendNum int) []*clustermesh.Endpoint {
-	endpoints := make([]*clustermesh.Endpoint, 0, backendNum/100+1)
-	var currEndpoint *clustermesh.Endpoint
+func getEndpoints(backendNum int) []*clustermesh.EndpointSlice {
+	endpoints := make([]*clustermesh.EndpointSlice, 0, backendNum/100+1)
+	var currEndpoint *clustermesh.EndpointSlice
 
 	for i := 0; i < backendNum; i++ {
 		if currEndpoint == nil {
-			currEndpoint = &clustermesh.Endpoint{}
-			currEndpoint.SetEndpointsName("my-service-backend-" + rand.String(5))
-			currEndpoint.SetEndpointsResourceVersion(rand.String(6))
+			currEndpoint = &clustermesh.EndpointSlice{}
+			currEndpoint.SetEndpointSliceName("my-service-backend-" + rand.String(5))
 
 			port1 := clustermesh.Port{}
 			port1.SetProtocol(clustermesh.L4Type_L4_TYPE_TCP)
@@ -51,11 +50,10 @@ func getEndpoints(backendNum int) []*clustermesh.Endpoint {
 			currEndpoint.SetBackends(make([]*clustermesh.Backend, 0, 100))
 		}
 
-		ip := binary.BigEndian.Uint32(getIP(i)[12:16])
 		currEndpoint.SetBackends(append(
 			currEndpoint.GetBackends(),
 			clustermesh.Backend_builder{
-				V4:                   ptr.To(ip),
+				Address:              ptr.To(getIP(i).String()),
 				Conditions:           ptr.To(uint32(k8s.BackendConditionReady | k8s.BackendConditionServing)),
 				ZoneIndex:            ptr.To(uint32(i % 3)),
 				HintsForZonesIndexes: []uint32{uint32(i % 3)},
@@ -82,7 +80,7 @@ func getClusterServiceProtobuf(backendNum int) *clustermesh.ClusterService {
 		Name:           ptr.To("my-service-backend"),
 		PortNamesTable: []string{"http", "http2"},
 		ZoneNamesTable: []string{"zone-1", "zone-2", "zone-3"},
-		Endpoints:      getEndpoints(backendNum),
+		EndpointSlices: getEndpoints(backendNum),
 	}.Build()
 }
 
@@ -279,24 +277,27 @@ func getPrettySize(bytes []byte) string {
 }
 
 func main() {
-	fmt.Println("| Backend Count |      JSON | JSON (zone) | JSON (2 ports + zone) |  Protobuf | Protobuf LZ4 | Protobuf zstd |")
-	fmt.Println("| ------------- | --------- | ----------- | --------------------- | --------- | ------------ | ------------- |")
+	// protoJSON, _ := getClusterServiceProtobuf(10).MarshalJSON()
+	// fmt.Println(string(protoJSON))
+
+	fmt.Println("| Backend Count | JSON      | JSON (2 ports) | JSON (2 ports + zstd) | Protobuf  | Protobuf lz4 | Protobuf zstd |")
+	fmt.Println("| ------------- | --------- | -------------- | --------------------- | --------- | ------------ | ------------- |")
 	for _, count := range []int{1, 10, 100, 1_000, 5_000, 10_000, 50_000, 100_000, 150_000} {
 		fmt.Printf("| %13d |", count)
 		jsonStruct := getClusterServiceJSON(count, 1)
-		fmt.Printf(" %9s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
 		jsonStruct.Zones = getClusterServiceJSONZones(count)
-		fmt.Printf(" %11s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
+		fmt.Printf(" %9s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
 
 		jsonStruct = getClusterServiceJSON(count, 2)
 		jsonStruct.Zones = getClusterServiceJSONZones(count)
-		fmt.Printf(" %21s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
+		fmt.Printf(" %14s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
+		fmt.Printf(" %21s |", getPrettySize(zstdCompress(getClusterServiceJSONBytes(jsonStruct))))
 
 		protoBytes := getClusterServiceProtobufBytes(getClusterServiceProtobuf(count))
 		fmt.Printf(" %9s |", getPrettySize(protoBytes))
 		fmt.Printf(" %12s |", getPrettySize(lz4Compress(protoBytes)))
 		fmt.Printf(" %13s |", getPrettySize(zstdCompress(protoBytes)))
-		fmt.Println()
 
+		fmt.Println()
 	}
 }

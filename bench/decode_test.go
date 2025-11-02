@@ -4,7 +4,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"net"
 	"os"
 	"strconv"
@@ -21,19 +20,17 @@ import (
 )
 
 func ClusterServiceToBackendParams(service *clustermeshapi.ClusterService) (beps []loadbalancer.BackendParams) {
-	for _, endpoint := range service.GetEndpoints() {
+	for _, endpoint := range service.GetEndpointSlices() {
 		portNames := make([]string, 0, len(endpoint.GetPorts()))
 		for _, port := range endpoint.GetPorts() {
 			portNames = append(portNames, service.GetPortNamesTable()[port.GetNameIndex()])
 		}
 
 		for _, backend := range endpoint.GetBackends() {
-			if !backend.HasV4() {
+			if !backend.HasAddress() {
 				panic("backend has no v4 address")
 			}
-			b := []byte{0, 0, 0, 0}
-			binary.BigEndian.PutUint32(b, backend.GetV4())
-			addrCluster := cmtypes.MustAddrClusterFromIP(net.IP(b))
+			addrCluster := cmtypes.MustAddrClusterFromIP(net.ParseIP(backend.GetAddress()))
 
 			backendZone := &loadbalancer.BackendZone{
 				Zone:     service.GetZoneNamesTable()[backend.GetZoneIndex()],
@@ -88,6 +85,20 @@ func BenchmarkDecoding(b *testing.B) {
 				panic("unexpected number of backends")
 			}
 		}
+	case "json_zstd":
+		getBytes = func(count int) []byte {
+			return zstdCompress(getClusterServiceJSONBytes(getClusterServiceJSON(count, 2)))
+		}
+		decode = func(b []byte) {
+			clusterSvc := store.ClusterService{}
+			err := clusterSvc.Unmarshal("", zstdDecompressWithPool(b))
+			if err != nil {
+				panic("unmarshal failed")
+			}
+			if len(clustermesh.ClusterServiceToBackendParams(&clusterSvc)) == 0 {
+				panic("unexpected number of backends")
+			}
+		}
 	case "protobuf":
 		getBytes = func(count int) []byte {
 			return getClusterServiceProtobufBytes(getClusterServiceProtobuf(count))
@@ -131,7 +142,7 @@ func BenchmarkDecoding(b *testing.B) {
 			}
 		}
 	default:
-		panic("unknown MODE, must be one of: json, protobuf, protobuf_lz4, protobuf_zstd")
+		panic("unknown MODE, must be one of: json, json_zstd, protobuf, protobuf_lz4, protobuf_zstd")
 	}
 	for _, count := range []int{1, 10, 100, 1_000, 5_000, 10_000, 50_000} {
 		data := getBytes(count)

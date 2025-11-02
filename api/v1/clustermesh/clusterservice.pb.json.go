@@ -35,14 +35,14 @@ func (msg *Port) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler
-func (msg *Endpoint) MarshalJSON() ([]byte, error) {
+func (msg *EndpointSlice) MarshalJSON() ([]byte, error) {
 	return protojson.MarshalOptions{
 		UseProtoNames: true,
 	}.Marshal(msg)
 }
 
 // UnmarshalJSON implements json.Unmarshaler
-func (msg *Endpoint) UnmarshalJSON(b []byte) error {
+func (msg *EndpointSlice) UnmarshalJSON(b []byte) error {
 	return protojson.UnmarshalOptions{}.Unmarshal(b, msg)
 }
 
