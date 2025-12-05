@@ -39,6 +39,12 @@ func newServiceMerger(p serviceMergerParams) ServiceMerger {
 	return &serviceMerger{clusterInfo: p.ClusterInfo, writer: p.Writer}
 }
 
+// NewServiceMergerForTesting creates a serviceMerger for testing/benchmarking purposes.
+// This allows tests to use the production serviceMerger implementation.
+func NewServiceMergerForTesting(clusterInfo cmtypes.ClusterInfo, writer *writer.Writer) ServiceMerger {
+	return &serviceMerger{clusterInfo: clusterInfo, writer: writer}
+}
+
 // registerServicesInitialized adds a job to wait for the ClusterMesh services to be synchronized
 // before marking the load-balancing tables as initialized.
 func registerServicesInitialized(jobs job.Group, cm *ClusterMesh, sm ServiceMerger, w *writer.Writer) {
