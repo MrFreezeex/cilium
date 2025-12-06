@@ -59,13 +59,13 @@ var (
 	}.ToConfig()
 )
 
-func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bool) {
+func RunBenchmark(testSize int, numEndpoints int, iterations int, loglevel slog.Level, validate bool) {
 	option.Config.EnableIPv4 = true
 	option.Config.EnableIPv6 = true
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: loglevel}))
 
-	svcs, epSlices := ServicesAndSlices(log, testSize)
+	svcs, epSlices := ServicesAndSlices(log, testSize, numEndpoints)
 
 	var maps lbmaps.LBMaps
 	if testutils.IsPrivileged() {
@@ -274,7 +274,7 @@ func (r run) churn() time.Duration       { return r.churnDuration }
 func (r run) delete() time.Duration      { return r.deleteDuration }
 func (r run) mem() *testutils.MemoryPair { return r.memstats }
 
-func ServicesAndSlices(logger *slog.Logger, testSize int) (svcs []*slim_corev1.Service, epSlices []*k8s.Endpoints) {
+func ServicesAndSlices(logger *slog.Logger, testSize int, numEndpoints int) (svcs []*slim_corev1.Service, epSlices []*k8s.Endpoints) {
 	svcs = make([]*slim_corev1.Service, 0, testSize)
 	epSlices = make([]*k8s.Endpoints, 0, testSize)
 
@@ -317,22 +317,49 @@ func ServicesAndSlices(logger *slog.Logger, testSize int) (svcs []*slim_corev1.S
 		panic(err)
 	}
 	sliceAddrAs4 := sliceAddr.As4()
+
+	const maxEndpointsPerSlice = 100
+
 	for j := range testSize {
-		tmpSlice := *slice
-		tmpSlice.Endpoints = slices.Clone(tmpSlice.Endpoints)
-		tmpSlice.Endpoints[0].Addresses = slices.Clone(tmpSlice.Endpoints[0].Addresses)
-		tmpSliceAddr := sliceAddrAs4
-		tmpSliceAddr[2] += byte(j / 256)
-		tmpSliceAddr[3] += byte(j % 256)
-		tmpSliceIPString := netip.AddrFrom4(tmpSliceAddr).String()
-		tmpSlice.Endpoints[0].Addresses[0] = tmpSliceIPString
+		// Calculate how many slices we need for this service
+		numSlices := (numEndpoints + maxEndpointsPerSlice - 1) / maxEndpointsPerSlice
 
-		tmpSlice.Labels = maps.Clone(tmpSlice.Labels)
-		tmpSlice.Labels["kubernetes.io/service-name"] = fmt.Sprintf("%s-%06d", slice.Labels["kubernetes.io/service-name"], j)
+		for sliceIdx := 0; sliceIdx < numSlices; sliceIdx++ {
+			tmpSlice := *slice
 
-		tmpSlice.Name = fmt.Sprintf("%s-%06d", slice.Name, j)
+			// Calculate how many endpoints go in this slice
+			startEndpoint := sliceIdx * maxEndpointsPerSlice
+			endEndpoint := min((sliceIdx+1)*maxEndpointsPerSlice, numEndpoints)
+			endpointsInThisSlice := endEndpoint - startEndpoint
 
-		epSlices = append(epSlices, k8s.ParseEndpointSliceV1(logger, &tmpSlice))
+			// Create endpoints for this slice
+			tmpSlice.Endpoints = make([]slim_discovery_v1.Endpoint, endpointsInThisSlice)
+			for i := 0; i < endpointsInThisSlice; i++ {
+				globalEndpointIdx := startEndpoint + i
+				tmpSliceAddr := sliceAddrAs4
+				tmpSliceAddr[0] = 11 + byte(globalEndpointIdx/256) // Vary first octet for many endpoints
+				tmpSliceAddr[1] += byte(globalEndpointIdx % 256)   // Vary second octet
+				tmpSliceAddr[2] += byte(j / 256)                   // Vary based on service index
+				tmpSliceAddr[3] += byte(j % 256)                   // Vary based on service index
+				tmpSliceIPString := netip.AddrFrom4(tmpSliceAddr).String()
+
+				// Clone the endpoint from the template
+				tmpSlice.Endpoints[i] = *slice.Endpoints[0].DeepCopy()
+				tmpSlice.Endpoints[i].Addresses = []string{tmpSliceIPString}
+			}
+
+			tmpSlice.Labels = maps.Clone(slice.Labels)
+			tmpSlice.Labels["kubernetes.io/service-name"] = fmt.Sprintf("%s-%06d", slice.Labels["kubernetes.io/service-name"], j)
+
+			// Include slice index in name if we have multiple slices per service
+			if numSlices > 1 {
+				tmpSlice.Name = fmt.Sprintf("%s-%06d-%d", slice.Name, j, sliceIdx)
+			} else {
+				tmpSlice.Name = fmt.Sprintf("%s-%06d", slice.Name, j)
+			}
+
+			epSlices = append(epSlices, k8s.ParseEndpointSliceV1(logger, &tmpSlice))
+		}
 	}
 	return
 }
@@ -358,6 +385,23 @@ func deleteEvent[Obj k8sRuntime.Object](obj Obj) resource.Event[Obj] {
 func checkTables(db *statedb.DB, writer *writer.Writer, svcs []*slim_corev1.Service, epSlices []*k8s.Endpoints) error {
 	txn := db.ReadTxn()
 	var err error
+
+	type backendKey struct {
+		serviceName loadbalancer.ServiceName
+		addr        cmtypes.AddrCluster
+	}
+
+	serviceBackends := make(map[loadbalancer.ServiceName]map[cmtypes.AddrCluster]struct{}, len(svcs))
+	expectedBackends := make(map[backendKey]*k8s.Backend)
+	for _, ep := range epSlices {
+		if _, exists := serviceBackends[ep.ServiceName]; !exists {
+			serviceBackends[ep.ServiceName] = make(map[cmtypes.AddrCluster]struct{}, len(ep.Backends))
+		}
+		for addr, backend := range ep.Backends {
+			serviceBackends[ep.ServiceName][addr] = struct{}{}
+			expectedBackends[backendKey{serviceName: ep.ServiceName, addr: addr}] = backend
+		}
+	}
 
 	{
 		if servicesNo := writer.Services().NumObjects(txn); servicesNo != len(svcs) {
@@ -413,10 +457,28 @@ func checkTables(db *statedb.DB, writer *writer.Writer, svcs []*slim_corev1.Serv
 				if fe.Status.Kind != reconciler.StatusKindDone {
 					err = errors.Join(err, fmt.Errorf("Incorrect status for frontend #%06d, got %v, want %v", i, fe.Status.Kind, "Done"))
 				}
+
 				backends := slices.Collect(statedb.ToSeq(iter.Seq2[*loadbalancer.Backend, statedb.Revision](fe.Backends)))
-				for wantAddr := range epSlices[i].Backends { // There is only one element in this map.
-					if backends[0].Address.AddrCluster() != wantAddr {
-						err = errors.Join(err, fmt.Errorf("Incorrect backend address for frontend #%06d, got %v, want %v", i, backends[0].Address.AddrCluster(), wantAddr))
+				expectedSvcBackends, found := serviceBackends[fe.ServiceName]
+				if !found {
+					err = errors.Join(err, fmt.Errorf("Unexpected backend service for frontend #%06d: %s", i, fe.ServiceName.String()))
+				} else {
+					expectedNumBackends := len(expectedSvcBackends)
+					if len(backends) != expectedNumBackends {
+						err = errors.Join(err, fmt.Errorf("Incorrect number of backends for frontend #%06d, got %d, want %d", i, len(backends), expectedNumBackends))
+					} else {
+						for wantAddr := range expectedSvcBackends {
+							found := false
+							for _, be := range backends {
+								if be.Address.AddrCluster() == wantAddr {
+									found = true
+									break
+								}
+							}
+							if !found {
+								err = errors.Join(err, fmt.Errorf("Expected backend address %v not found for frontend #%06d", wantAddr, i))
+							}
+						}
 					}
 				}
 
@@ -426,45 +488,32 @@ func checkTables(db *statedb.DB, writer *writer.Writer, svcs []*slim_corev1.Serv
 	}
 
 	{
-		if backendsNo := writer.Backends().NumObjects(txn); backendsNo != len(epSlices) {
-			err = errors.Join(err, fmt.Errorf("Incorrect number of backends, got %d, want %d", backendsNo, len(epSlices)))
+		expectedNumBackends := 0
+		for _, ep := range epSlices {
+			expectedNumBackends += len(ep.Backends)
+		}
+		if backendsNo := writer.Backends().NumObjects(txn); backendsNo != expectedNumBackends {
+			err = errors.Join(err, fmt.Errorf("Incorrect number of backends, got %d, want %d", backendsNo, expectedNumBackends))
 		} else {
-			expectedBySvc := map[loadbalancer.ServiceName]*k8s.Endpoints{}
-			for _, ep := range epSlices {
-				expectedBySvc[ep.ServiceName] = ep
-			}
-			i := 0
 			for be := range writer.Backends().All(txn) {
-				want, ok := expectedBySvc[be.ServiceName]
-				if !ok {
-					err = errors.Join(err, fmt.Errorf("Unexpected backend service for backend #%06d: %s", i, be.ServiceName.String()))
-					i++
+				wantBe, found := expectedBackends[backendKey{serviceName: be.ServiceName, addr: be.Address.AddrCluster()}]
+				if !found {
+					err = errors.Join(err, fmt.Errorf("Backend %s/%v not found in expected endpoints", be.ServiceName.String(), be.Address.AddrCluster()))
 					continue
 				}
-				for wantAddr, wantBe := range want.Backends { // There is only one element in this map.
-					if be.Address.AddrCluster() != wantAddr {
-						err = errors.Join(err, fmt.Errorf("Incorrect address for backend #%06d, got %v, want %v", i, be.Address.AddrCluster(), wantAddr))
-					}
-					for wantPort := range wantBe.Ports { // There is only one element in this map.
-						if be.Address.Port() != wantPort.Port {
-							err = errors.Join(err, fmt.Errorf("Incorrect port for backend #%06d, got %v, want %v", i, be.Address.Port(), wantPort.Port))
-						}
-						if be.Address.Protocol() != wantPort.Protocol {
-							err = errors.Join(err, fmt.Errorf("Incorrect protocol for backend #%06d, got %v, want %v", i, be.Address.Protocol(), wantPort.Protocol))
-						}
-					}
-				}
-				if be.ServiceName.Name() != svcs[i].Name {
-					err = errors.Join(err, fmt.Errorf("Incorrect service name for backend #%06d, got %v, want %v", i, be.ServiceName.Name(), svcs[i].Name))
-				}
-				if state, tmpErr := be.State.String(); tmpErr != nil || state != "active" {
-					err = errors.Join(err, fmt.Errorf("Incorrect state for backend #%06d, got %q, want %q", i, state, "active"))
-				}
-				if len(be.PortNames) == 0 || be.PortNames[0] != svcs[i].Spec.Ports[0].Name {
-					err = errors.Join(err, fmt.Errorf("Incorrect backend port name for backend #%06d, got %q, want %q", i, be.PortNames, svcs[i].Spec.Ports[0].Name))
+
+				wantPortNames, found := wantBe.Ports[loadbalancer.NewL4Addr(be.Address.Protocol(), be.Address.Port())]
+				if !found {
+					err = errors.Join(err, fmt.Errorf("Backend port %s not found in expected ports for %v", be.Address.StringWithProtocol(), be.Address.AddrCluster()))
+					continue
 				}
 
-				i++
+				if state, tmpErr := be.State.String(); tmpErr != nil || state != "active" {
+					err = errors.Join(err, fmt.Errorf("Incorrect state for backend %v, got %q, want %q", be.Address.AddrCluster(), state, "active"))
+				}
+				if !slices.Equal(be.PortNames, wantPortNames) {
+					err = errors.Join(err, fmt.Errorf("Incorrect backend port names for backend %v, got %v, want %v", be.Address.AddrCluster(), be.PortNames, wantPortNames))
+				}
 			}
 		}
 	}
