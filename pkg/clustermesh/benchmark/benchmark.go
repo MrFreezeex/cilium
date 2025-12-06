@@ -141,6 +141,21 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 			observer.OnUpdate(key)
 		}
 
+		//
+		// Feed remote ClusterServices again to check churn on existing services
+		//
+		fmt.Print("churn ")
+		startChurn := time.Now()
+		for _, bcs := range bytesClusterServices {
+			key := keyCreator()
+			if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
+				panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+			}
+
+			observer.OnUpdate(key)
+		}
+		churnDuration := time.Since(startChurn)
+
 		fmt.Print("wait ")
 		reconciled = false
 		for waitStart := time.Now(); time.Now().Sub(waitStart) < 10*time.Second; time.Sleep(10 * time.Millisecond) {
@@ -205,6 +220,7 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 			runs,
 			run{
 				insertDuration: insertDuration,
+				churnDuration:  churnDuration,
 				deleteDuration: deleteDuration,
 				memstats:       &memory,
 			},
@@ -220,17 +236,23 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 	testutils.PrintTimeStats(testutils.MapFunc(runs, run.insert), testSize)
 	fmt.Println()
 
+	fmt.Printf("Churn statistics from N=%d iterations (re-update same ClusterServices):\n", iterations)
+	testutils.PrintTimeStats(testutils.MapFunc(runs, run.churn), testSize)
+	fmt.Println()
+
 	fmt.Printf("Delete statistics from N=%d iterations:\n", iterations)
 	testutils.PrintTimeStats(testutils.MapFunc(runs, run.delete), testSize)
 }
 
 type run struct {
 	insertDuration time.Duration
+	churnDuration  time.Duration
 	deleteDuration time.Duration
 	memstats       *testutils.MemoryPair
 }
 
 func (r run) insert() time.Duration      { return r.insertDuration }
+func (r run) churn() time.Duration       { return r.churnDuration }
 func (r run) delete() time.Duration      { return r.deleteDuration }
 func (r run) mem() *testutils.MemoryPair { return r.memstats }
 
