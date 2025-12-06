@@ -51,7 +51,7 @@ var (
 	}.ToConfig()
 )
 
-func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bool) {
+func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Level, validate bool) {
 	option.Config.EnableIPv4 = true
 	option.Config.EnableIPv6 = true
 	option.Config.ClusterID = 1
@@ -59,7 +59,7 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: loglevel}))
 
 	svcs := GenerateServices(testSize)
-	clusterServices := GenerateClusterServices(svcs, "remote-cluster", 2)
+	clusterServices := GenerateClusterServices(svcs, "remote-cluster", 2, backends)
 
 	type bytesClusterService struct {
 		bytes []byte
@@ -285,7 +285,7 @@ func GenerateServices(testSize int) []*slim_corev1.Service {
 	return svcs
 }
 
-func GenerateClusterServices(svcs []*slim_corev1.Service, clusterName string, clusterID uint32) []*serviceStore.ClusterService {
+func GenerateClusterServices(svcs []*slim_corev1.Service, clusterName string, clusterID uint32, numBackends int) []*serviceStore.ClusterService {
 	clusterServices := make([]*serviceStore.ClusterService, 0, len(svcs))
 
 	for _, svc := range svcs {
@@ -294,20 +294,25 @@ func GenerateClusterServices(svcs []*slim_corev1.Service, clusterName string, cl
 		cs.ClusterID = clusterID
 		cs.Shared = true
 
-		// Generate backend IP from service IP (e.g., 10.x.x.x -> 11.x.x.x)
+		// Generate backend IPs from service IP
 		svcAddr, err := netip.ParseAddr(svc.Spec.ClusterIP)
 		if err != nil {
 			panic(err)
 		}
-		backendAddrAs4 := svcAddr.As4()
-		backendAddrAs4[0] = 11 // Hardcode first byte to 11
-		backendIPString := netip.AddrFrom4(backendAddrAs4).String()
 
-		cs.Backends[backendIPString] = serviceStore.PortConfiguration{
-			svc.Spec.Ports[0].Name: &loadbalancer.L4Addr{
-				Protocol: loadbalancer.L4Type(svc.Spec.Ports[0].Protocol),
-				Port:     uint16(svc.Spec.Ports[0].Port),
-			},
+		// Generate multiple backends per service
+		for i := 0; i < numBackends; i++ {
+			backendAddrAs4 := svcAddr.As4()
+			backendAddrAs4[0] = 11 + byte(i/256) // Vary first octet for many backends
+			backendAddrAs4[1] += byte(i % 256)   // Vary second octet
+			backendIPString := netip.AddrFrom4(backendAddrAs4).String()
+
+			cs.Backends[backendIPString] = serviceStore.PortConfiguration{
+				svc.Spec.Ports[0].Name: &loadbalancer.L4Addr{
+					Protocol: loadbalancer.L4Type(svc.Spec.Ports[0].Protocol),
+					Port:     uint16(svc.Spec.Ports[0].Port),
+				},
+			}
 		}
 
 		clusterServices = append(clusterServices, &cs)

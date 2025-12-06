@@ -13,8 +13,9 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 )
 
-// Test size is the number of services. For each service, there is a single endpointslice with a single endpoint with a single port.
+// Test size is the number of services
 var testSize = flag.Int("services", 50000, "number of services to create")
+var backends = flag.Int("backends", 1, "number of backends per service")
 var iterations = flag.Int("iterations", 10, "number of benchmark runs to perform")
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var loglevel = flag.String("log-level", "error", "log-level")
@@ -40,6 +41,7 @@ func main() {
 	}
 	benchmark.RunBenchmark(
 		*testSize,
+		*backends,
 		*iterations,
 		level,
 		*validate,
