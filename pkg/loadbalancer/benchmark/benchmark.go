@@ -21,6 +21,7 @@ import (
 	"github.com/cilium/statedb"
 	"github.com/cilium/statedb/reconciler"
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	daemonk8s "github.com/cilium/cilium/daemon/k8s"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
@@ -165,6 +166,41 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 
 		insertDuration := time.Since(start)
 
+		//
+		// Feed in all the test objects again to measure churn by updating the
+		// first backend of the first endpoint slice per service (set ready=false)
+		//
+		fmt.Print("churn ")
+		seenServices := sets.New[loadbalancer.ServiceName]()
+		startChurn := time.Now()
+		for _, epSlice := range epSlices {
+			if !seenServices.Has(epSlice.ServiceName) {
+				seenServices.Insert(epSlice.ServiceName)
+				for addr, backend := range epSlice.Backends {
+					backend.Conditions = backend.Conditions &^ k8s.BackendConditionReady
+					epSlice.Backends[addr] = backend
+					break // Stop after first backend
+				}
+			}
+			endpoints <- upsertEvent(epSlice)
+		}
+		for _, svc := range svcs {
+			services <- upsertEvent(svc)
+		}
+
+		fmt.Print("wait ")
+		reconciled = false
+		for waitStart := time.Now(); time.Now().Sub(waitStart) < 10*time.Second; time.Sleep(10 * time.Millisecond) {
+			reconciled, nextRevision = fastCheckTables(db, writer, testSize, nextRevision)
+			if reconciled {
+				break
+			}
+		}
+		if !reconciled {
+			panic("Timeout waiting for churn reconciliation.")
+		}
+		churnDuration := time.Since(startChurn)
+
 		runtime.GC()
 		runtime.ReadMemStats(&memory.After)
 
@@ -202,6 +238,7 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 			runs,
 			run{
 				insertDuration: insertDuration,
+				churnDuration:  churnDuration,
 				deleteDuration: time.Since(startDelete),
 				memstats:       &memory,
 			},
@@ -217,17 +254,23 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 	testutils.PrintTimeStats(testutils.MapFunc(runs, run.insert), testSize)
 
 	fmt.Println()
+	fmt.Printf("Churn statistics from N=%d iterations (re-update same objects):\n", iterations)
+	testutils.PrintTimeStats(testutils.MapFunc(runs, run.churn), testSize)
+
+	fmt.Println()
 	fmt.Printf("Delete statistics from N=%d iterations:\n", iterations)
 	testutils.PrintTimeStats(testutils.MapFunc(runs, run.delete), testSize)
 }
 
 type run struct {
 	insertDuration time.Duration
+	churnDuration  time.Duration
 	deleteDuration time.Duration
 	memstats       *testutils.MemoryPair
 }
 
 func (r run) insert() time.Duration      { return r.insertDuration }
+func (r run) churn() time.Duration       { return r.churnDuration }
 func (r run) delete() time.Duration      { return r.deleteDuration }
 func (r run) mem() *testutils.MemoryPair { return r.memstats }
 
