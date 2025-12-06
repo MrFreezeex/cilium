@@ -11,7 +11,6 @@ import (
 	"iter"
 	"log/slog"
 	"maps"
-	"math"
 	"net/netip"
 	"os"
 	"runtime"
@@ -126,8 +125,8 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 
 	for i := range iterations {
 		runtime.GC()
-		var memory memoryPair
-		runtime.ReadMemStats(&memory.before)
+		var memory testutils.MemoryPair
+		runtime.ReadMemStats(&memory.Before)
 
 		start := time.Now()
 
@@ -167,7 +166,7 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 		insertDuration := time.Since(start)
 
 		runtime.GC()
-		runtime.ReadMemStats(&memory.after)
+		runtime.ReadMemStats(&memory.After)
 
 		startDelete := time.Now()
 
@@ -211,101 +210,26 @@ func RunBenchmark(testSize int, iterations int, loglevel slog.Level, validate bo
 
 	fmt.Println()
 	fmt.Printf("Memory statistics from N=%d iterations:\n", iterations)
-	printMemoryStats(mapFunc(runs, run.mem), testSize)
+	testutils.PrintMemoryStats(testutils.MapFunc(runs, run.mem), testSize)
 	fmt.Println()
 
 	fmt.Printf("Insert statistics from N=%d iterations:\n", iterations)
-	printTimeStats(mapFunc(runs, run.insert), testSize)
+	testutils.PrintTimeStats(testutils.MapFunc(runs, run.insert), testSize)
 
 	fmt.Println()
 	fmt.Printf("Delete statistics from N=%d iterations:\n", iterations)
-	printTimeStats(mapFunc(runs, run.delete), testSize)
-}
-
-type memoryPair struct {
-	before runtime.MemStats
-	after  runtime.MemStats
+	testutils.PrintTimeStats(testutils.MapFunc(runs, run.delete), testSize)
 }
 
 type run struct {
 	insertDuration time.Duration
 	deleteDuration time.Duration
-	memstats       *memoryPair
+	memstats       *testutils.MemoryPair
 }
 
-func (r run) insert() time.Duration { return r.insertDuration }
-func (r run) delete() time.Duration { return r.deleteDuration }
-func (r run) mem() *memoryPair      { return r.memstats }
-
-func printMemoryStats(pairs []*memoryPair, testSize int) {
-	Min, Max, Avg := calculateStatistics(pairs)
-	fmt.Printf("Min: Allocated %6dkB in total, %7d objects / %6dkB still reachable (per service: %3d objs, %5dB alloc, %5dB in-use)\n", Min.alloc/1024, Min.objects, Min.inUse/1024, Min.objects/int64(testSize), Min.alloc/int64(testSize), Min.inUse/int64(testSize))
-	fmt.Printf("Avg: Allocated %6dkB in total, %7d objects / %6dkB still reachable (per service: %3d objs, %5dB alloc, %5dB in-use)\n", Avg.alloc/1024, Avg.objects, Avg.inUse/1024, Avg.objects/int64(testSize), Avg.alloc/int64(testSize), Avg.inUse/int64(testSize))
-	fmt.Printf("Max: Allocated %6dkB in total, %7d objects / %6dkB still reachable (per service: %3d objs, %5dB alloc, %5dB in-use)\n", Max.alloc/1024, Max.objects, Max.inUse/1024, Max.objects/int64(testSize), Max.alloc/int64(testSize), Max.inUse/int64(testSize))
-}
-
-type stats struct {
-	objects, alloc, inUse int64
-}
-
-func calculateStatistics(pairs []*memoryPair) (Min, Max, Avg stats) {
-	Min.objects = math.MaxInt64
-	Min.alloc = math.MaxInt64
-	Min.inUse = math.MaxInt64
-	for _, memory := range pairs {
-		var objects, alloc, inUse int64
-		objects = int64(memory.after.HeapObjects - memory.before.HeapObjects)
-		Min.objects = min(Min.objects, objects)
-		Max.objects = max(Max.objects, objects)
-		Avg.objects += objects
-
-		alloc = int64(memory.after.TotalAlloc - memory.before.TotalAlloc)
-		Min.alloc = min(Min.alloc, alloc)
-		Max.alloc = max(Max.alloc, alloc)
-		Avg.alloc += alloc
-
-		inUse = int64(memory.after.HeapAlloc - memory.before.HeapAlloc)
-		Min.inUse = min(Min.inUse, inUse)
-		Max.inUse = max(Max.inUse, inUse)
-		Avg.inUse += inUse
-	}
-	Avg.objects /= int64(len(pairs))
-	Avg.alloc /= int64(len(pairs))
-	Avg.inUse /= int64(len(pairs))
-	return
-}
-
-func printTimeStats(durations []time.Duration, testSize int) {
-	Min, Max, Avg := calculateTimeStats(durations)
-	avgPerService := time.Duration(Avg.Nanoseconds() / int64(testSize))
-	maxPerService := time.Duration(Max.Nanoseconds() / int64(testSize))
-	minPerService := time.Duration(Min.Nanoseconds() / int64(testSize))
-
-	fmt.Printf("Min: Reconciled %d objects in %-11s (%-9s per service / %6.0f services per second)\n", testSize, Min, minPerService, float64(time.Second)/float64(minPerService))
-	fmt.Printf("Avg: Reconciled %d objects in %-11s (%-9s per service / %6.0f services per second)\n", testSize, Avg, avgPerService, float64(time.Second)/float64(avgPerService))
-	fmt.Printf("Max: Reconciled %d objects in %-11s (%-9s per service / %6.0f services per second)\n", testSize, Max, maxPerService, float64(time.Second)/float64(maxPerService))
-}
-
-func calculateTimeStats(durations []time.Duration) (Min, Max, Avg time.Duration) {
-	var Sum time.Duration
-	Min = 2 * time.Hour
-	for _, duration := range durations {
-		Min = min(Min, duration)
-		Max = max(Max, duration)
-		Sum += duration
-	}
-	Avg = time.Duration(Sum.Nanoseconds() / int64(len(durations)) * int64(time.Nanosecond))
-	return
-
-}
-
-func mapFunc[A, B any](xs []A, fn func(A) B) []B {
-	out := make([]B, len(xs))
-	for i := range xs {
-		out[i] = fn(xs[i])
-	}
-	return out
-}
+func (r run) insert() time.Duration      { return r.insertDuration }
+func (r run) delete() time.Duration      { return r.deleteDuration }
+func (r run) mem() *testutils.MemoryPair { return r.memstats }
 
 func ServicesAndSlices(logger *slog.Logger, testSize int) (svcs []*slim_corev1.Service, epSlices []*k8s.Endpoints) {
 	svcs = make([]*slim_corev1.Service, 0, testSize)
