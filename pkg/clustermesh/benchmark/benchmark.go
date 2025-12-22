@@ -51,7 +51,7 @@ var (
 	}.ToConfig()
 )
 
-func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Level, validate bool) {
+func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Level, validate bool, skipJSONDecoding bool) {
 	option.Config.EnableIPv4 = true
 	option.Config.EnableIPv6 = true
 	option.Config.ClusterID = 1
@@ -98,6 +98,20 @@ func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Leve
 		}
 	}()
 
+	// Pre-unmarshal keys if skipJSONDecoding is enabled, so we can reuse them
+	// during benchmark iterations without paying the unmarshal cost.
+	var preUnmarshaledKeys []store.Key
+	if skipJSONDecoding {
+		preUnmarshaledKeys = make([]store.Key, 0, len(bytesClusterServices))
+		for _, bcs := range bytesClusterServices {
+			key := keyCreator()
+			if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
+				panic(fmt.Sprintf("Failed to pre-unmarshal ClusterService: %v", err))
+			}
+			preUnmarshaledKeys = append(preUnmarshaledKeys, key)
+		}
+	}
+
 	// Create the service and frontend entries simulating the local cluster and
 	// wait for them to be reconciled
 	fmt.Print("Setup local cluster services/frontends ")
@@ -132,13 +146,18 @@ func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Leve
 		// Feed remote ClusterServices
 		//
 		fmt.Print("Iteration: upsert remote ClusterServices ")
-		for _, bcs := range bytesClusterServices {
-			key := keyCreator()
-			if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
-				panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+		if skipJSONDecoding {
+			for _, key := range preUnmarshaledKeys {
+				observer.OnUpdate(key)
 			}
-
-			observer.OnUpdate(key)
+		} else {
+			for _, bcs := range bytesClusterServices {
+				key := keyCreator()
+				if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
+					panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+				}
+				observer.OnUpdate(key)
+			}
 		}
 
 		//
@@ -146,13 +165,18 @@ func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Leve
 		//
 		fmt.Print("churn ")
 		startChurn := time.Now()
-		for _, bcs := range bytesClusterServices {
-			key := keyCreator()
-			if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
-				panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+		if skipJSONDecoding {
+			for _, key := range preUnmarshaledKeys {
+				observer.OnUpdate(key)
 			}
-
-			observer.OnUpdate(key)
+		} else {
+			for _, bcs := range bytesClusterServices {
+				key := keyCreator()
+				if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
+					panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+				}
+				observer.OnUpdate(key)
+			}
 		}
 		churnDuration := time.Since(startChurn)
 
@@ -187,13 +211,18 @@ func RunBenchmark(testSize int, backends int, iterations int, loglevel slog.Leve
 		//
 		// Feed deletion of remote ClusterServices
 		//
-		for _, bcs := range bytesClusterServices {
-			key := keyCreator()
-			if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
-				panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+		if skipJSONDecoding {
+			for _, key := range preUnmarshaledKeys {
+				observer.OnDelete(key)
 			}
-
-			observer.OnDelete(key)
+		} else {
+			for _, bcs := range bytesClusterServices {
+				key := keyCreator()
+				if err := key.Unmarshal(bcs.key, bcs.bytes); err != nil {
+					panic(fmt.Sprintf("Failed to unmarshal ClusterService: %v", err))
+				}
+				observer.OnDelete(key)
+			}
 		}
 
 		fmt.Printf("wait ")

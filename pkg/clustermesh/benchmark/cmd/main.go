@@ -20,6 +20,7 @@ var iterations = flag.Int("iterations", 10, "number of benchmark runs to perform
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var loglevel = flag.String("log-level", "error", "log-level")
 var validate = flag.Bool("validate", false, "validate results (load test rather than benchmark)")
+var skipJSONDecoding = flag.Bool("skip-json-decoding", false, "Pre-decode all the JSON structure on the init to understand the impact of JSON decoding")
 
 func main() {
 	flag.Parse()
@@ -45,5 +46,6 @@ func main() {
 		*iterations,
 		level,
 		*validate,
+		*skipJSONDecoding,
 	)
 }
