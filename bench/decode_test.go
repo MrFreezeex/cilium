@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fxamacker/cbor/v2"
 	"google.golang.org/protobuf/proto"
 
 	clustermeshapi "github.com/cilium/cilium/api/v1/clustermesh"
-	"github.com/cilium/cilium/pkg/clustermesh"
 	"github.com/cilium/cilium/pkg/clustermesh/store"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -64,16 +64,15 @@ func ClusterServiceToBackendParams(service *clustermeshapi.ClusterService) (beps
 }
 
 func BenchmarkDecoding(b *testing.B) {
-	// TODO: make decode actually convert to BackendParams
 	var getBytes func(count int) []byte
 	var decode func([]byte)
 
 	mode, _ := os.LookupEnv("MODE")
 	mode = strings.ToLower(mode)
 	switch mode {
-	case "json":
+	case "existing_json":
 		getBytes = func(count int) []byte {
-			return getClusterServiceJSONBytes(getClusterServiceJSON(count, 2))
+			return getClusterServiceJSONBytes(getClusterServiceJSON(count))
 		}
 		decode = func(b []byte) {
 			clusterSvc := store.ClusterService{}
@@ -81,13 +80,13 @@ func BenchmarkDecoding(b *testing.B) {
 			if err != nil {
 				panic("unmarshal failed")
 			}
-			if len(clustermesh.ClusterServiceToBackendParams(&clusterSvc)) == 0 {
-				panic("unexpected number of backends")
-			}
+			// if len(clustermesh.ClusterServiceToBackendParams(&clusterSvc)) == 0 {
+			// 	panic("unexpected number of backends")
+			// }
 		}
-	case "json_zstd":
+	case "existing_json_zstd":
 		getBytes = func(count int) []byte {
-			return zstdCompress(getClusterServiceJSONBytes(getClusterServiceJSON(count, 2)))
+			return zstdCompress(getClusterServiceJSONBytes(getClusterServiceJSON(count)))
 		}
 		decode = func(b []byte) {
 			clusterSvc := store.ClusterService{}
@@ -95,8 +94,55 @@ func BenchmarkDecoding(b *testing.B) {
 			if err != nil {
 				panic("unmarshal failed")
 			}
-			if len(clustermesh.ClusterServiceToBackendParams(&clusterSvc)) == 0 {
-				panic("unexpected number of backends")
+			// if len(clustermesh.ClusterServiceToBackendParams(&clusterSvc)) == 0 {
+			// 	panic("unexpected number of backends")
+			// }
+		}
+	case "intermediary_json":
+		getBytes = func(count int) []byte {
+			return getClusterServiceJSONBytes(getClusterServiceIntermediaryJSON(count))
+		}
+		decode = func(b []byte) {
+			clusterSvc := store.ClusterService{}
+			err := clusterSvc.Unmarshal("", b)
+			if err != nil {
+				panic("unmarshal failed")
+			}
+		}
+	case "existing_cbor":
+		getBytes = func(count int) []byte {
+			return getClusterServiceCBORBytes(getClusterServiceJSON(count))
+		}
+		decode = func(b []byte) {
+			clusterSvc := store.ClusterService{}
+			err := cbor.Unmarshal(b, &clusterSvc)
+			if err != nil {
+				panic("unmarshal failed")
+			}
+			// if len(clustermesh.ClusterServiceToBackendParams(&clusterSvc)) == 0 {
+			// 	panic("unexpected number of backends")
+			// }
+		}
+	case "target_cbor":
+		getBytes = func(count int) []byte {
+			return getClusterServiceCBORTargetBytes(getClusterServiceIntermediaryJSON(count))
+		}
+		decode = func(b []byte) {
+			clusterSvc := store.ClusterService{}
+			err := cbor.Unmarshal(b, &clusterSvc)
+			if err != nil {
+				panic("unmarshal failed")
+			}
+		}
+	case "target_cbor_zstd":
+		getBytes = func(count int) []byte {
+			return zstdCompress(getClusterServiceCBORTargetBytes(getClusterServiceIntermediaryJSON(count)))
+		}
+		decode = func(b []byte) {
+			clusterSvc := store.ClusterService{}
+			err := cbor.Unmarshal(zstdDecompressWithPool(b), &clusterSvc)
+			if err != nil {
+				panic("unmarshal failed")
 			}
 		}
 	case "protobuf":
@@ -109,23 +155,9 @@ func BenchmarkDecoding(b *testing.B) {
 			if err != nil {
 				panic(err)
 			}
-			if len(ClusterServiceToBackendParams(&clusterSvc)) == 0 {
-				panic("unexpected number of backends")
-			}
-		}
-	case "protobuf_lz4":
-		getBytes = func(count int) []byte {
-			return lz4CompressFast(getClusterServiceProtobufBytes(getClusterServiceProtobuf(count)))
-		}
-		decode = func(b []byte) {
-			clusterSvc := clustermeshapi.ClusterService{}
-			err := proto.Unmarshal(lz4DecompressFast(b), &clusterSvc)
-			if err != nil {
-				panic(err)
-			}
-			if len(ClusterServiceToBackendParams(&clusterSvc)) == 0 {
-				panic("unexpected number of backends")
-			}
+			// if len(ClusterServiceToBackendParams(&clusterSvc)) == 0 {
+			// 	panic("unexpected number of backends")
+			// }
 		}
 	case "protobuf_zstd":
 		getBytes = func(count int) []byte {
@@ -137,12 +169,12 @@ func BenchmarkDecoding(b *testing.B) {
 			if err != nil {
 				panic(err)
 			}
-			if len(ClusterServiceToBackendParams(&clusterSvc)) == 0 {
-				panic("unexpected number of backends")
-			}
+			// if len(ClusterServiceToBackendParams(&clusterSvc)) == 0 {
+			// 	panic("unexpected number of backends")
+			// }
 		}
 	default:
-		panic("unknown MODE, must be one of: json, json_zstd, protobuf, protobuf_lz4, protobuf_zstd")
+		panic("unknown MODE, must be one of: existing_json, existing_json_zstd, intermediary_json, existing_cbor, target_cbor, target_cbor_zstd, protobuf, protobuf_zstd")
 	}
 	for _, count := range []int{1, 10, 100, 1_000, 5_000, 10_000, 50_000} {
 		data := getBytes(count)

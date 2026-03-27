@@ -12,7 +12,10 @@ import (
 	"sync"
 
 	"github.com/cilium/cilium/pkg/k8s"
+	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	slim_discoveryv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	"github.com/cilium/cilium/pkg/loadbalancer"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4"
 	"google.golang.org/protobuf/proto"
@@ -22,6 +25,8 @@ import (
 	"github.com/cilium/cilium/api/v1/clustermesh"
 	"github.com/cilium/cilium/pkg/clustermesh/store"
 )
+
+var deterministicCBOREncMode, _ = cbor.CoreDetEncOptions().EncMode()
 
 func getIP(i int) net.IP {
 	return net.IPv4(10, byte(i/256/256), byte(i/256%256), byte(i%256))
@@ -209,9 +214,11 @@ func lz4DecompressFast(dataWithHeader []byte) []byte {
 	return decompressed
 }
 
-func getBackends(backendNum, portCount int) map[string]store.PortConfiguration {
+const jsonPortCount = 2
+
+func getBackends(backendNum int) map[string]store.PortConfiguration {
 	ports := store.PortConfiguration{}
-	for i := 0; i < portCount; i++ {
+	for i := 0; i < jsonPortCount; i++ {
 		ports["port"+strconv.Itoa(i)] = &loadbalancer.L4Addr{
 			Protocol: loadbalancer.TCP,
 			Port:     uint16(8080 + i),
@@ -225,7 +232,47 @@ func getBackends(backendNum, portCount int) map[string]store.PortConfiguration {
 	return backends
 }
 
-func getClusterServiceJSON(backendNum, portCount int) *store.ClusterService {
+func getSlimEndpointSlices(backendNum int) []slim_discoveryv1.EndpointSlice {
+	endpointSlices := make([]slim_discoveryv1.EndpointSlice, 0, backendNum/100+1)
+	protocol := slim_corev1.ProtocolTCP
+	port8080 := int32(8080)
+	port8081 := int32(8081)
+	portName0 := "port0"
+	portName1 := "port1"
+
+	var current *slim_discoveryv1.EndpointSlice
+	for i := 0; i < backendNum; i++ {
+		if current == nil {
+			current = &slim_discoveryv1.EndpointSlice{
+				AddressType: slim_discoveryv1.AddressTypeIPv4,
+				Ports: []slim_discoveryv1.EndpointPort{
+					{Name: &portName0, Protocol: &protocol, Port: &port8080},
+					{Name: &portName1, Protocol: &protocol, Port: &port8081},
+				},
+				Endpoints: make([]slim_discoveryv1.Endpoint, 0, 100),
+			}
+		}
+
+		zone := "zone-" + strconv.Itoa(i%3+1)
+		current.Endpoints = append(current.Endpoints, slim_discoveryv1.Endpoint{
+			Addresses: []string{getIP(i).String()},
+			Zone:      &zone,
+		})
+
+		if (i+1)%100 == 0 {
+			endpointSlices = append(endpointSlices, *current)
+			current = nil
+		}
+	}
+
+	if current != nil {
+		endpointSlices = append(endpointSlices, *current)
+	}
+
+	return endpointSlices
+}
+
+func getClusterServiceJSON(backendNum int) *store.ClusterService {
 	return &store.ClusterService{
 		Cluster:   "cluster-1",
 		Namespace: "default",
@@ -236,13 +283,19 @@ func getClusterServiceJSON(backendNum, portCount int) *store.ClusterService {
 				Port:     80,
 			},
 		}},
-		Backends:        getBackends(backendNum, portCount),
+		Backends:        getBackends(backendNum),
 		ClusterID:       42,
 		Labels:          map[string]string{"name": "my-service-backend"},
 		Selector:        map[string]string{"name": "my-service-backend"},
 		IncludeExternal: false,
 		Shared:          false,
 	}
+}
+
+func getClusterServiceIntermediaryJSON(backendNum int) *store.ClusterService {
+	clusterSvc := getClusterServiceJSON(backendNum)
+	clusterSvc.EndpointSlices = getSlimEndpointSlices(backendNum)
+	return clusterSvc
 }
 
 func getClusterServiceJSONZones(backendNum int) map[string]store.BackendZone {
@@ -258,6 +311,27 @@ func getClusterServiceJSONZones(backendNum int) map[string]store.BackendZone {
 
 func getClusterServiceJSONBytes(clusterSvc *store.ClusterService) []byte {
 	b, err := clusterSvc.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func getClusterServiceCBORBytes(clusterSvc *store.ClusterService) []byte {
+	b, err := deterministicCBOREncMode.Marshal(clusterSvc)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func getClusterServiceCBORTargetBytes(clusterSvc *store.ClusterService) []byte {
+	target := clusterSvc.DeepCopy()
+	target.Backends = nil
+	target.Zones = nil
+	target.Hostnames = nil
+
+	b, err := deterministicCBOREncMode.Marshal(target)
 	if err != nil {
 		panic(err)
 	}
@@ -280,22 +354,23 @@ func main() {
 	// protoJSON, _ := getClusterServiceProtobuf(10).MarshalJSON()
 	// fmt.Println(string(protoJSON))
 
-	fmt.Println("| Backend Count | JSON      | JSON (2 ports) | JSON (2 ports + zstd) | Protobuf  | Protobuf lz4 | Protobuf zstd |")
-	fmt.Println("| ------------- | --------- | -------------- | --------------------- | --------- | ------------ | ------------- |")
+	fmt.Println("| Backend Count | Existing JSON | Intermediary JSON | Existing CBOR | Target CBOR | Target CBOR zstd | Protobuf  | Protobuf zstd |")
+	fmt.Println("| ------------- | ------------- | ----------------- | ------------- | ----------- | ---------------- | --------- | ------------- |")
 	for _, count := range []int{1, 10, 100, 1_000, 5_000, 10_000, 50_000, 100_000, 150_000} {
 		fmt.Printf("| %13d |", count)
-		jsonStruct := getClusterServiceJSON(count, 1)
-		jsonStruct.Zones = getClusterServiceJSONZones(count)
-		fmt.Printf(" %9s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
+		existingJSON := getClusterServiceJSON(count)
+		existingJSON.Zones = getClusterServiceJSONZones(count)
+		fmt.Printf(" %13s |", getPrettySize(getClusterServiceJSONBytes(existingJSON)))
 
-		jsonStruct = getClusterServiceJSON(count, 2)
-		jsonStruct.Zones = getClusterServiceJSONZones(count)
-		fmt.Printf(" %14s |", getPrettySize(getClusterServiceJSONBytes(jsonStruct)))
-		fmt.Printf(" %21s |", getPrettySize(zstdCompress(getClusterServiceJSONBytes(jsonStruct))))
+		intermediaryJSON := getClusterServiceIntermediaryJSON(count)
+		intermediaryJSON.Zones = getClusterServiceJSONZones(count)
+		fmt.Printf(" %17s |", getPrettySize(getClusterServiceJSONBytes(intermediaryJSON)))
+		fmt.Printf(" %13s |", getPrettySize(getClusterServiceCBORBytes(existingJSON)))
+		fmt.Printf(" %11s |", getPrettySize(getClusterServiceCBORTargetBytes(intermediaryJSON)))
+		fmt.Printf(" %16s |", getPrettySize(zstdCompress(getClusterServiceCBORTargetBytes(intermediaryJSON))))
 
 		protoBytes := getClusterServiceProtobufBytes(getClusterServiceProtobuf(count))
 		fmt.Printf(" %9s |", getPrettySize(protoBytes))
-		fmt.Printf(" %12s |", getPrettySize(lz4Compress(protoBytes)))
 		fmt.Printf(" %13s |", getPrettySize(zstdCompress(protoBytes)))
 
 		fmt.Println()

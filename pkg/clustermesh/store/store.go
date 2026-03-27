@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
+	slim_discoveryv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -65,6 +66,10 @@ type ClusterService struct {
 
 	// Backends is map indexed by the backend IP address
 	Backends map[string]PortConfiguration `json:"backends"`
+
+	// EndpointSlices contains a slice-based backend representation using the
+	// slim Kubernetes EndpointSlice API.
+	EndpointSlices []slim_discoveryv1.EndpointSlice `json:"endpointSlices,omitempty"`
 
 	// Hostnames is map indexed by the backend IP address
 	Hostnames map[string]string `json:"hostnames,omitempty"`
