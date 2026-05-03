@@ -1,0 +1,16 @@
+goos: linux
+goarch: amd64
+pkg: github.com/cilium/cilium/bench
+cpu: 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz
+BenchmarkDecoding/endpoint_slice-8         	    4162	    249303 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4737	    257234 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4989	    249813 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4650	    249001 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4293	    255599 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4376	    252632 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4801	    248337 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4142	    251262 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4513	    257100 ns/op
+BenchmarkDecoding/endpoint_slice-8         	    4328	    263416 ns/op
+PASS
+ok  	github.com/cilium/cilium/bench	11.427s
