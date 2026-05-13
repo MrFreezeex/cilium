@@ -52,6 +52,9 @@ make generate-sdp-api
 # Generate all datapath plugin api files
 make generate-datapathplugins-api
 
+# Generate all clustermesh poc api files
+make generate-clustermesh-poc-api
+
 # Ensure new files are also considered in the diff
 git add --intent-to-add .
 
